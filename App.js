@@ -3,18 +3,35 @@ import {
   View, Text, TextInput, TouchableOpacity,
   FlatList, StyleSheet, SafeAreaView,
 } from "react-native";
+import { Calendar } from "react-native-calendars";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const STORAGE_KEY = "todo_tasks";
-const DAYS = ["Today", "Tomorrow", "Later"];
+const STORAGE_KEY = "todo_tasks_v2";
+const COLOR = "#4f46e5";
+
+// Local date as YYYY-MM-DD (avoids timezone bugs)
+const todayString = () => {
+  const d = new Date();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${m}-${day}`;
+};
+
+const prettyDate = (dateString) =>
+  new Date(dateString + "T00:00:00").toLocaleDateString("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
 
 export default function App() {
   const [text, setText] = useState("");
-  const [day, setDay] = useState("Today");
   const [tasks, setTasks] = useState([]);
+  const [selectedDate, setSelectedDate] = useState(todayString());
   const [loaded, setLoaded] = useState(false);
 
-  // Load saved tasks when the app opens
+  // Load saved tasks
   useEffect(() => {
     const load = async () => {
       try {
@@ -28,7 +45,7 @@ export default function App() {
     load();
   }, []);
 
-  // Save tasks every time they change
+  // Save tasks whenever they change
   useEffect(() => {
     if (!loaded) return;
     AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(tasks)).catch((e) =>
@@ -40,7 +57,12 @@ export default function App() {
     if (!text.trim()) return;
     setTasks([
       ...tasks,
-      { id: Date.now().toString(), title: text.trim(), day, done: false },
+      {
+        id: Date.now().toString(),
+        title: text.trim(),
+        date: selectedDate,
+        done: false,
+      },
     ]);
     setText("");
   };
@@ -50,72 +72,103 @@ export default function App() {
 
   const deleteTask = (id) => setTasks(tasks.filter((t) => t.id !== id));
 
-  return (
-    <SafeAreaView style={styles.container}>
+  // Dots on days that have tasks + highlight the selected day
+  const markedDates = {};
+  tasks.forEach((t) => {
+    markedDates[t.date] = { marked: true, dotColor: COLOR };
+  });
+  markedDates[selectedDate] = {
+    ...(markedDates[selectedDate] || {}),
+    selected: true,
+    selectedColor: COLOR,
+  };
+
+  const dayTasks = tasks.filter((t) => t.date === selectedDate);
+
+  const header = (
+    <View>
       <Text style={styles.heading}>My To-Do</Text>
 
-      <TextInput
-        style={styles.input}
-        placeholder="What needs to be done?"
-        value={text}
-        onChangeText={setText}
-        onSubmitEditing={addTask}
+      <Calendar
+        current={selectedDate}
+        onDayPress={(day) => setSelectedDate(day.dateString)}
+        markedDates={markedDates}
+        theme={{
+          todayTextColor: COLOR,
+          arrowColor: COLOR,
+          selectedDayBackgroundColor: COLOR,
+        }}
+        style={styles.calendar}
       />
 
-      <View style={styles.row}>
-        {DAYS.map((d) => (
-          <TouchableOpacity
-            key={d}
-            style={[styles.chip, day === d && styles.chipActive]}
-            onPress={() => setDay(d)}
-          >
-            <Text style={day === d && styles.chipTextActive}>{d}</Text>
-          </TouchableOpacity>
-        ))}
+      <TouchableOpacity onPress={() => setSelectedDate(todayString())}>
+        <Text style={styles.todayLink}>Jump to today</Text>
+      </TouchableOpacity>
+
+      <Text style={styles.dateTitle}>{prettyDate(selectedDate)}</Text>
+      <Text style={styles.count}>
+        {dayTasks.length} {dayTasks.length === 1 ? "task" : "tasks"}
+      </Text>
+
+      <View style={styles.addRow}>
+        <TextInput
+          style={styles.input}
+          placeholder="Add a task for this day..."
+          value={text}
+          onChangeText={setText}
+          onSubmitEditing={addTask}
+        />
         <TouchableOpacity style={styles.addBtn} onPress={addTask}>
           <Text style={styles.addText}>Add</Text>
         </TouchableOpacity>
       </View>
+    </View>
+  );
 
-      <FlatList
-        data={tasks}
-        keyExtractor={(item) => item.id}
-        ListEmptyComponent={
-          <Text style={styles.empty}>No tasks yet. Add one above!</Text>
-        }
-        renderItem={({ item }) => (
-          <View style={styles.task}>
-            <TouchableOpacity style={{ flex: 1 }} onPress={() => toggleTask(item.id)}>
-              <Text style={[styles.taskText, item.done && styles.done]}>
-                {item.done ? "✅ " : "⬜ "}
-                {item.title}
-              </Text>
-              <Text style={styles.dayText}>{item.day}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => deleteTask(item.id)}>
-              <Text style={styles.delete}>🗑️</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-      />
+  return (
+    <SafeAreaView style={styles.safe}>
+      <View style={styles.container}>
+        <FlatList
+          data={dayTasks}
+          keyExtractor={(item) => item.id}
+          ListHeaderComponent={header}
+          ListEmptyComponent={
+            <Text style={styles.empty}>No tasks for this day.</Text>
+          }
+          renderItem={({ item }) => (
+            <View style={styles.task}>
+              <TouchableOpacity style={{ flex: 1 }} onPress={() => toggleTask(item.id)}>
+                <Text style={[styles.taskText, item.done && styles.done]}>
+                  {item.done ? "✅ " : "⬜ "}
+                  {item.title}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => deleteTask(item.id)}>
+                <Text style={styles.delete}>🗑️</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        />
+      </View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 20, paddingTop: 60, backgroundColor: "#fff" },
-  heading: { fontSize: 28, fontWeight: "bold", marginBottom: 16 },
-  input: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 12, marginBottom: 12 },
-  row: { flexDirection: "row", alignItems: "center", marginBottom: 16 },
-  chip: { borderWidth: 1, borderColor: "#ccc", borderRadius: 16, paddingVertical: 6, paddingHorizontal: 12, marginRight: 8 },
-  chipActive: { backgroundColor: "#4f46e5", borderColor: "#4f46e5" },
-  chipTextActive: { color: "#fff" },
-  addBtn: { marginLeft: "auto", backgroundColor: "#4f46e5", borderRadius: 8, paddingVertical: 8, paddingHorizontal: 20 },
+  safe: { flex: 1, backgroundColor: "#fff" },
+  container: { flex: 1, width: "100%", maxWidth: 600, alignSelf: "center", paddingHorizontal: 20, paddingTop: 40 },
+  heading: { fontSize: 28, fontWeight: "bold", marginBottom: 12 },
+  calendar: { borderWidth: 1, borderColor: "#eee", borderRadius: 12 },
+  todayLink: { color: COLOR, textAlign: "right", marginTop: 8, fontWeight: "600" },
+  dateTitle: { fontSize: 18, fontWeight: "bold", marginTop: 12 },
+  count: { color: "#888", marginBottom: 12 },
+  addRow: { flexDirection: "row", marginBottom: 12 },
+  input: { flex: 1, borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 12, marginRight: 8 },
+  addBtn: { backgroundColor: COLOR, borderRadius: 8, paddingHorizontal: 20, justifyContent: "center" },
   addText: { color: "#fff", fontWeight: "bold" },
   task: { flexDirection: "row", alignItems: "center", paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "#eee" },
   taskText: { fontSize: 16 },
   done: { textDecorationLine: "line-through", color: "#999" },
-  dayText: { fontSize: 12, color: "#888", marginTop: 2 },
   delete: { fontSize: 20, paddingLeft: 12 },
-  empty: { textAlign: "center", color: "#999", marginTop: 40 },
+  empty: { textAlign: "center", color: "#999", marginTop: 20 },
 });
