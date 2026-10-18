@@ -91,6 +91,7 @@ export default function App() {
 
       <Calendar
         current={selectedDate}
+        minDate={todayString()}
         onDayPress={(day) => setSelectedDate(day.dateString)}
         markedDates={markedDates}
         theme={{
