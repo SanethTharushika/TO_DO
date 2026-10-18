@@ -82,6 +82,7 @@ export default function App() {
   const [tasks, setTasks] = useState([]);
   const [selectedDate, setSelectedDate] = useState(todayString());
   const [loaded, setLoaded] = useState(false);
+  const [formOpen, setFormOpen] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -186,6 +187,14 @@ export default function App() {
       return a.time.localeCompare(b.time);
     });
 
+  const closeForm = () => {
+    setFormOpen(false);
+    setText("");
+    setTime("");
+    setRepeatDaily(false);
+    setError("");
+  };
+
   const header = (
     <View>
       <Text style={styles.heading}>My To-Do</Text>
@@ -195,6 +204,7 @@ export default function App() {
         minDate={todayString()}
         onDayPress={(day) => {
           setSelectedDate(day.dateString);
+          setFormOpen(true);
           setError("");
         }}
         markedDates={markedDates}
@@ -206,7 +216,13 @@ export default function App() {
         style={styles.calendar}
       />
 
-      <TouchableOpacity onPress={() => setSelectedDate(todayString())}>
+      <TouchableOpacity
+        onPress={() => {
+          setSelectedDate(todayString());
+          setFormOpen(true);
+          setError("");
+        }}
+      >
         <Text style={styles.todayLink}>Jump to today</Text>
       </TouchableOpacity>
 
@@ -215,45 +231,58 @@ export default function App() {
         {dayTasks.length} {dayTasks.length === 1 ? "task" : "tasks"}
       </Text>
 
-      <View style={styles.addRow}>
-        <TextInput
-          style={styles.input}
-          placeholder="Add a task..."
-          value={text}
-          onChangeText={setText}
-          onSubmitEditing={addTask}
-        />
-        <TouchableOpacity style={styles.addBtn} onPress={addTask}>
-          <Text style={styles.addText}>Add</Text>
-        </TouchableOpacity>
-      </View>
+      {formOpen ? (
+        <View style={styles.formBox}>
+          <View style={styles.formHeader}>
+            <Text style={styles.formTitle}>New task</Text>
+            <TouchableOpacity onPress={closeForm}>
+              <Text style={styles.clear}>✕ Close</Text>
+            </TouchableOpacity>
+          </View>
 
-      <View style={styles.timeRow}>
-        <Text style={styles.timeLabel}>⏰ Time (optional)</Text>
-        <TimeField
-          value={time}
-          onChange={(v) => {
-            setTime(v);
-            setError("");
-          }}
-        />
-        {time !== "" && (
-          <TouchableOpacity onPress={() => setTime("")}>
-            <Text style={styles.clear}>Clear</Text>
+          <View style={styles.addRow}>
+            <TextInput
+              style={styles.input}
+              placeholder="Add a task..."
+              value={text}
+              onChangeText={setText}
+              onSubmitEditing={addTask}
+            />
+            <TouchableOpacity style={styles.addBtn} onPress={addTask}>
+              <Text style={styles.addText}>Add</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.timeRow}>
+            <Text style={styles.timeLabel}>⏰ Time (optional)</Text>
+            <TimeField
+              value={time}
+              onChange={(v) => {
+                setTime(v);
+                setError("");
+              }}
+            />
+            {time !== "" && (
+              <TouchableOpacity onPress={() => setTime("")}>
+                <Text style={styles.clear}>Clear</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          <TouchableOpacity
+            style={[styles.repeatChip, repeatDaily && styles.repeatChipActive]}
+            onPress={() => setRepeatDaily(!repeatDaily)}
+          >
+            <Text style={repeatDaily ? styles.repeatTextActive : styles.repeatText}>
+              🔁 Repeat daily {repeatDaily ? "(on)" : ""}
+            </Text>
           </TouchableOpacity>
-        )}
-      </View>
 
-      <TouchableOpacity
-        style={[styles.repeatChip, repeatDaily && styles.repeatChipActive]}
-        onPress={() => setRepeatDaily(!repeatDaily)}
-      >
-        <Text style={repeatDaily ? styles.repeatTextActive : styles.repeatText}>
-          🔁 Repeat daily {repeatDaily ? "(on)" : ""}
-        </Text>
-      </TouchableOpacity>
-
-      {error !== "" && <Text style={styles.error}>{error}</Text>}
+          {error !== "" && <Text style={styles.error}>{error}</Text>}
+        </View>
+      ) : (
+        <Text style={styles.hint}>👆 Tap a date to add a task</Text>
+      )}
     </View>
   );
 
@@ -320,4 +349,8 @@ const styles = StyleSheet.create({
   done: { textDecorationLine: "line-through", color: "#999" },
   delete: { fontSize: 20, paddingLeft: 12 },
   empty: { textAlign: "center", color: "#999", marginTop: 20 },
+  hint: { color: "#888", marginBottom: 12 },
+  formBox: { backgroundColor: "#f9fafb", borderRadius: 12, padding: 12, marginBottom: 12 },
+  formHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 10 },
+  formTitle: { fontSize: 16, fontWeight: "bold" },
 });
