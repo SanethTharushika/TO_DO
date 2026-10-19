@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   View, Text, TextInput, TouchableOpacity,
   FlatList, StyleSheet, SafeAreaView, Platform,
@@ -7,6 +7,7 @@ import { Calendar } from "react-native-calendars";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const STORAGE_KEY = "todo_tasks_v2";
+const REMINDED_KEY = "todo_reminded_v1";
 const COLOR = "#4f46e5";
 
 const pad = (n) => String(n).padStart(2, "0");
@@ -19,6 +20,11 @@ const todayString = () => {
 const nowTimeString = () => {
   const d = new Date();
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
+const toMinutes = (t) => {
+  const [h, m] = t.split(":").map(Number);
+  return h * 60 + m;
 };
 
 const formatTime = (t) => {
@@ -36,15 +42,46 @@ const prettyDate = (dateString) =>
     year: "numeric",
   });
 
-// Does this task appear on the given date?
 const appearsOn = (task, date) =>
   task.repeat === "daily" ? date >= task.date : task.date === date;
 
-// Is this task done on the given date?
 const isDoneOn = (task, date) =>
   task.repeat === "daily"
     ? (task.doneDates || []).includes(date)
     : !!task.done;
+
+// ---------- Reminder helpers (web only, all wrapped in try/catch) ----------
+const playBeep = () => {
+  if (Platform.OS !== "web") return;
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    const ctx = new Ctx();
+    const osc = ctx.createOscillator();
+    osc.connect(ctx.destination);
+    osc.frequency.value = 880;
+    osc.start();
+    setTimeout(() => {
+      osc.stop();
+      ctx.close();
+    }, 400);
+  } catch (e) {}
+  try {
+    if (navigator.vibrate) navigator.vibrate(300);
+  } catch (e) {}
+};
+
+const showSystemNotification = (title, body) => {
+  if (Platform.OS !== "web" || typeof Notification === "undefined") return;
+  if (Notification.permission !== "granted") return;
+  try {
+    new Notification(title, { body });
+  } catch (e) {}
+};
+
+const getPermission = () =>
+  Platform.OS === "web" && typeof Notification !== "undefined"
+    ? Notification.permission
+    : "unsupported";
 
 function TimeField({ value, onChange }) {
   if (Platform.OS === "web") {
@@ -84,13 +121,18 @@ export default function App() {
   const [loaded, setLoaded] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  const [alerts, setAlerts] = useState([]);
+  const [permission, setPermission] = useState(getPermission());
+  const remindedRef = useRef(new Set());
 
-  // Load saved tasks
+  // Load saved tasks and already-reminded keys
   useEffect(() => {
     const load = async () => {
       try {
         const saved = await AsyncStorage.getItem(STORAGE_KEY);
         if (saved) setTasks(JSON.parse(saved));
+        const rem = await AsyncStorage.getItem(REMINDED_KEY);
+        if (rem) remindedRef.current = new Set(JSON.parse(rem));
       } catch (e) {
         console.log("Load error", e);
       }
@@ -106,6 +148,56 @@ export default function App() {
       console.log("Save error", e)
     );
   }, [tasks, loaded]);
+
+  // Reminder checker: runs now and then every 15 seconds
+  useEffect(() => {
+    if (!loaded) return;
+
+    const check = () => {
+      const today = todayString();
+      const nowMin = toMinutes(nowTimeString());
+      const fresh = [];
+
+      tasks.forEach((t) => {
+        if (!t.time || !appearsOn(t, today) || isDoneOn(t, today)) return;
+        const diff = nowMin - toMinutes(t.time);
+        if (diff < 0 || diff > 10) return; // only remind within 10 min of the time
+        const key = `${t.id}|${today}|${t.time}`;
+        if (remindedRef.current.has(key)) return;
+        remindedRef.current.add(key);
+        fresh.push({ key, title: t.title, time: t.time });
+      });
+
+      if (fresh.length === 0) return;
+
+      setAlerts((prev) => [...prev, ...fresh]);
+      fresh.forEach((f) =>
+        showSystemNotification("⏰ Task reminder", `${f.title} (${formatTime(f.time)})`)
+      );
+      playBeep();
+
+      // Keep only today's keys so the list doesn't grow forever
+      const keep = [...remindedRef.current].filter(
+        (k) => k.split("|")[1] === today
+      );
+      remindedRef.current = new Set(keep);
+      AsyncStorage.setItem(REMINDED_KEY, JSON.stringify(keep)).catch(() => {});
+    };
+
+    check();
+    const id = setInterval(check, 15000);
+    return () => clearInterval(id);
+  }, [tasks, loaded]);
+
+  const dismissAlert = (key) =>
+    setAlerts((prev) => prev.filter((a) => a.key !== key));
+
+  const enableNotifications = async () => {
+    try {
+      const result = await Notification.requestPermission();
+      setPermission(result);
+    } catch (e) {}
+  };
 
   const closeForm = () => {
     setFormOpen(false);
@@ -125,7 +217,6 @@ export default function App() {
     setFormOpen(true);
   };
 
-  // Handles both adding a new task and saving an edit
   const addTask = () => {
     if (!text.trim()) return;
 
@@ -139,11 +230,9 @@ export default function App() {
       return;
     }
 
-    // Editing: update the existing task
     if (editingId) {
       const original = tasks.find((t) => t.id === editingId);
 
-      // Only block a past time if the time was actually changed
       if (
         !repeatDaily &&
         time &&
@@ -173,7 +262,6 @@ export default function App() {
       return;
     }
 
-    // Adding a new task
     if (
       !repeatDaily &&
       time &&
@@ -202,7 +290,6 @@ export default function App() {
     setError("");
   };
 
-  // Tick / untick for the selected day only
   const toggleTask = (id) =>
     setTasks(
       tasks.map((t) => {
@@ -218,13 +305,11 @@ export default function App() {
       })
     );
 
-  // Deleting a daily task removes it from every day
   const deleteTask = (id) => {
     if (id === editingId) closeForm();
     setTasks(tasks.filter((t) => t.id !== id));
   };
 
-  // Calendar dots for one-time tasks only
   const markedDates = {};
   tasks
     .filter((t) => t.repeat !== "daily")
@@ -237,7 +322,6 @@ export default function App() {
     selectedColor: COLOR,
   };
 
-  // Tasks for the selected day, sorted by time (no time goes last)
   const dayTasks = tasks
     .filter((t) => appearsOn(t, selectedDate))
     .sort((a, b) => {
@@ -279,6 +363,12 @@ export default function App() {
       >
         <Text style={styles.todayLink}>Jump to today</Text>
       </TouchableOpacity>
+
+      {permission === "default" && (
+        <TouchableOpacity style={styles.notifBtn} onPress={enableNotifications}>
+          <Text style={styles.notifText}>🔔 Enable notifications</Text>
+        </TouchableOpacity>
+      )}
 
       <Text style={styles.dateTitle}>{prettyDate(selectedDate)}</Text>
       <Text style={styles.count}>
@@ -349,6 +439,17 @@ export default function App() {
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.container}>
+        {alerts.map((a) => (
+          <View key={a.key} style={styles.alertBox}>
+            <Text style={styles.alertText}>
+              ⏰ {a.title} — {formatTime(a.time)}
+            </Text>
+            <TouchableOpacity onPress={() => dismissAlert(a.key)}>
+              <Text style={styles.alertClose}>Dismiss</Text>
+            </TouchableOpacity>
+          </View>
+        ))}
+
         <FlatList
           data={dayTasks}
           keyExtractor={(item) => item.id}
@@ -394,6 +495,8 @@ const styles = StyleSheet.create({
   heading: { fontSize: 28, fontWeight: "bold", marginBottom: 12 },
   calendar: { borderWidth: 1, borderColor: "#eee", borderRadius: 12 },
   todayLink: { color: COLOR, textAlign: "right", marginTop: 8, fontWeight: "600" },
+  notifBtn: { alignSelf: "flex-start", borderWidth: 1, borderColor: COLOR, borderRadius: 16, paddingVertical: 6, paddingHorizontal: 14, marginTop: 8 },
+  notifText: { color: COLOR, fontWeight: "600" },
   dateTitle: { fontSize: 18, fontWeight: "bold", marginTop: 12 },
   count: { color: "#888", marginBottom: 12 },
   addRow: { flexDirection: "row", marginBottom: 12 },
@@ -420,4 +523,7 @@ const styles = StyleSheet.create({
   formBox: { backgroundColor: "#f9fafb", borderRadius: 12, padding: 12, marginBottom: 12 },
   formHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 10 },
   formTitle: { fontSize: 16, fontWeight: "bold" },
+  alertBox: { flexDirection: "row", alignItems: "center", backgroundColor: "#fef3c7", borderRadius: 12, padding: 12, marginBottom: 8 },
+  alertText: { flex: 1, fontWeight: "600", color: "#92400e" },
+  alertClose: { color: COLOR, fontWeight: "600", marginLeft: 10 },
 });
