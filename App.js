@@ -12,9 +12,21 @@ const COLOR = "#4f46e5";
 
 const pad = (n) => String(n).padStart(2, "0");
 
-const todayString = () => {
+const dateToString = (d) =>
+  `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+
+const todayString = () => dateToString(new Date());
+
+const tomorrowString = () => {
   const d = new Date();
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  d.setDate(d.getDate() + 1);
+  return dateToString(d);
+};
+
+const yesterdayString = () => {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return dateToString(d);
 };
 
 const nowTimeString = () => {
@@ -42,6 +54,15 @@ const prettyDate = (dateString) =>
     year: "numeric",
   });
 
+const dayLabel = (date) => {
+  if (date === todayString()) return "Today";
+  if (date === yesterdayString()) return "Yesterday";
+  return new Date(date + "T00:00:00").toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
+};
+
 const appearsOn = (task, date) =>
   task.repeat === "daily" ? date >= task.date : task.date === date;
 
@@ -50,7 +71,24 @@ const isDoneOn = (task, date) =>
     ? (task.doneDates || []).includes(date)
     : !!task.done;
 
-// ---------- Reminder helpers (web only, all wrapped in try/catch) ----------
+// A task is missed if its time/day has passed and it is not done
+const isOverdue = (task) => {
+  const today = todayString();
+  const now = nowTimeString();
+  if (task.repeat === "daily") {
+    return (
+      appearsOn(task, today) &&
+      !isDoneOn(task, today) &&
+      !!task.time &&
+      task.time < now
+    );
+  }
+  if (task.done) return false;
+  if (task.date < today) return true;
+  return task.date === today && !!task.time && task.time < now;
+};
+
+// ---------- Reminder helpers (web only) ----------
 const playBeep = () => {
   if (Platform.OS !== "web") return;
   try {
@@ -123,7 +161,22 @@ export default function App() {
   const [editingId, setEditingId] = useState(null);
   const [alerts, setAlerts] = useState([]);
   const [permission, setPermission] = useState(getPermission());
+  const [, setTick] = useState(0); // forces a refresh so "missed" updates
   const remindedRef = useRef(new Set());
+
+  // Refresh every 30 seconds and when you come back to the tab
+  useEffect(() => {
+    const id = setInterval(() => setTick((n) => n + 1), 30000);
+    let onVisible;
+    if (Platform.OS === "web" && typeof document !== "undefined") {
+      onVisible = () => setTick((n) => n + 1);
+      document.addEventListener("visibilitychange", onVisible);
+    }
+    return () => {
+      clearInterval(id);
+      if (onVisible) document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, []);
 
   // Load saved tasks and already-reminded keys
   useEffect(() => {
@@ -161,7 +214,7 @@ export default function App() {
       tasks.forEach((t) => {
         if (!t.time || !appearsOn(t, today) || isDoneOn(t, today)) return;
         const diff = nowMin - toMinutes(t.time);
-        if (diff < 0 || diff > 10) return; // only remind within 10 min of the time
+        if (diff < 0 || diff > 10) return;
         const key = `${t.id}|${today}|${t.time}`;
         if (remindedRef.current.has(key)) return;
         remindedRef.current.add(key);
@@ -176,7 +229,6 @@ export default function App() {
       );
       playBeep();
 
-      // Keep only today's keys so the list doesn't grow forever
       const keep = [...remindedRef.current].filter(
         (k) => k.split("|")[1] === today
       );
@@ -310,6 +362,27 @@ export default function App() {
     setTasks(tasks.filter((t) => t.id !== id));
   };
 
+  // ----- Missed task actions -----
+  const markMissedDone = (task) => {
+    const today = todayString();
+    setTasks(
+      tasks.map((t) => {
+        if (t.id !== task.id) return t;
+        if (t.repeat === "daily") {
+          return { ...t, doneDates: [...(t.doneDates || []), today] };
+        }
+        return { ...t, done: true };
+      })
+    );
+  };
+
+  const moveToTomorrow = (id) =>
+    setTasks(
+      tasks.map((t) =>
+        t.id === id ? { ...t, date: tomorrowString(), done: false } : t
+      )
+    );
+
   const markedDates = {};
   tasks
     .filter((t) => t.repeat !== "daily")
@@ -322,8 +395,19 @@ export default function App() {
     selectedColor: COLOR,
   };
 
+  // Missed tasks (oldest first)
+  const missedTasks = tasks
+    .filter(isOverdue)
+    .sort((a, b) => {
+      const da = a.repeat === "daily" ? todayString() : a.date;
+      const db = b.repeat === "daily" ? todayString() : b.date;
+      if (da !== db) return da.localeCompare(db);
+      return (a.time || "").localeCompare(b.time || "");
+    });
+
+  // Day list: tasks for the selected day, without the missed ones
   const dayTasks = tasks
-    .filter((t) => appearsOn(t, selectedDate))
+    .filter((t) => appearsOn(t, selectedDate) && !isOverdue(t))
     .sort((a, b) => {
       if (!a.time && !b.time) return 0;
       if (!a.time) return 1;
@@ -334,6 +418,39 @@ export default function App() {
   const header = (
     <View>
       <Text style={styles.heading}>My To-Do</Text>
+
+      {missedTasks.length > 0 && (
+        <View style={styles.missedBox}>
+          <Text style={styles.missedTitle}>
+            ⚠️ Missed ({missedTasks.length})
+          </Text>
+          {missedTasks.map((t) => (
+            <View key={t.id} style={styles.missedRow}>
+              <Text style={styles.missedText}>{t.title}</Text>
+              <Text style={styles.missedMeta}>
+                {t.repeat === "daily" ? "🔁 " : ""}
+                {dayLabel(t.repeat === "daily" ? todayString() : t.date)}
+                {t.time ? ` · ${formatTime(t.time)}` : ""}
+              </Text>
+              <View style={styles.missedActions}>
+                <TouchableOpacity onPress={() => markMissedDone(t)}>
+                  <Text style={styles.missedAction}>✅ Done</Text>
+                </TouchableOpacity>
+                {t.repeat !== "daily" && (
+                  <TouchableOpacity onPress={() => moveToTomorrow(t.id)}>
+                    <Text style={styles.missedAction}>📅 Tomorrow</Text>
+                  </TouchableOpacity>
+                )}
+                {t.repeat !== "daily" && (
+                  <TouchableOpacity onPress={() => deleteTask(t.id)}>
+                    <Text style={styles.missedAction}>🗑️</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
+          ))}
+        </View>
+      )}
 
       <Calendar
         current={selectedDate}
@@ -526,4 +643,11 @@ const styles = StyleSheet.create({
   alertBox: { flexDirection: "row", alignItems: "center", backgroundColor: "#fef3c7", borderRadius: 12, padding: 12, marginBottom: 8 },
   alertText: { flex: 1, fontWeight: "600", color: "#92400e" },
   alertClose: { color: COLOR, fontWeight: "600", marginLeft: 10 },
+  missedBox: { backgroundColor: "#fef2f2", borderWidth: 1, borderColor: "#fecaca", borderRadius: 12, padding: 12, marginBottom: 12 },
+  missedTitle: { fontSize: 16, fontWeight: "bold", color: "#b91c1c", marginBottom: 8 },
+  missedRow: { paddingVertical: 8, borderTopWidth: 1, borderTopColor: "#fecaca" },
+  missedText: { fontSize: 16, color: "#7f1d1d" },
+  missedMeta: { fontSize: 12, color: "#b91c1c", marginTop: 2 },
+  missedActions: { flexDirection: "row", marginTop: 6 },
+  missedAction: { color: COLOR, fontWeight: "600", marginRight: 16 },
 });
