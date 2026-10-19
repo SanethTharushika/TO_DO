@@ -83,7 +83,9 @@ export default function App() {
   const [selectedDate, setSelectedDate] = useState(todayString());
   const [loaded, setLoaded] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
+  const [editingId, setEditingId] = useState(null);
 
+  // Load saved tasks
   useEffect(() => {
     const load = async () => {
       try {
@@ -97,6 +99,7 @@ export default function App() {
     load();
   }, []);
 
+  // Save tasks whenever they change
   useEffect(() => {
     if (!loaded) return;
     AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(tasks)).catch((e) =>
@@ -104,10 +107,29 @@ export default function App() {
     );
   }, [tasks, loaded]);
 
+  const closeForm = () => {
+    setFormOpen(false);
+    setEditingId(null);
+    setText("");
+    setTime("");
+    setRepeatDaily(false);
+    setError("");
+  };
+
+  const startEdit = (task) => {
+    setEditingId(task.id);
+    setText(task.title);
+    setTime(task.time || "");
+    setRepeatDaily(task.repeat === "daily");
+    setError("");
+    setFormOpen(true);
+  };
+
+  // Handles both adding a new task and saving an edit
   const addTask = () => {
     if (!text.trim()) return;
 
-    if (selectedDate < todayString()) {
+    if (!editingId && selectedDate < todayString()) {
       setSelectedDate(todayString());
       return;
     }
@@ -117,7 +139,41 @@ export default function App() {
       return;
     }
 
-    // Past-time check only for one-time tasks (a daily task starts working tomorrow)
+    // Editing: update the existing task
+    if (editingId) {
+      const original = tasks.find((t) => t.id === editingId);
+
+      // Only block a past time if the time was actually changed
+      if (
+        !repeatDaily &&
+        time &&
+        time !== original.time &&
+        selectedDate === todayString() &&
+        time < nowTimeString()
+      ) {
+        setError("That time has already passed today.");
+        return;
+      }
+
+      setTasks(
+        tasks.map((t) => {
+          if (t.id !== editingId) return t;
+          const becameOneTime = t.repeat === "daily" && !repeatDaily;
+          return {
+            ...t,
+            title: text.trim(),
+            time: time,
+            repeat: repeatDaily ? "daily" : "none",
+            date: becameOneTime ? selectedDate : t.date,
+            done: becameOneTime ? isDoneOn(t, selectedDate) : t.done,
+          };
+        })
+      );
+      closeForm();
+      return;
+    }
+
+    // Adding a new task
     if (
       !repeatDaily &&
       time &&
@@ -133,7 +189,7 @@ export default function App() {
       {
         id: Date.now().toString(),
         title: text.trim(),
-        date: selectedDate, // start date for daily tasks
+        date: selectedDate,
         time: time,
         repeat: repeatDaily ? "daily" : "none",
         done: false,
@@ -163,7 +219,10 @@ export default function App() {
     );
 
   // Deleting a daily task removes it from every day
-  const deleteTask = (id) => setTasks(tasks.filter((t) => t.id !== id));
+  const deleteTask = (id) => {
+    if (id === editingId) closeForm();
+    setTasks(tasks.filter((t) => t.id !== id));
+  };
 
   // Calendar dots for one-time tasks only
   const markedDates = {};
@@ -178,6 +237,7 @@ export default function App() {
     selectedColor: COLOR,
   };
 
+  // Tasks for the selected day, sorted by time (no time goes last)
   const dayTasks = tasks
     .filter((t) => appearsOn(t, selectedDate))
     .sort((a, b) => {
@@ -187,14 +247,6 @@ export default function App() {
       return a.time.localeCompare(b.time);
     });
 
-  const closeForm = () => {
-    setFormOpen(false);
-    setText("");
-    setTime("");
-    setRepeatDaily(false);
-    setError("");
-  };
-
   const header = (
     <View>
       <Text style={styles.heading}>My To-Do</Text>
@@ -203,6 +255,7 @@ export default function App() {
         current={selectedDate}
         minDate={todayString()}
         onDayPress={(day) => {
+          if (editingId) closeForm();
           setSelectedDate(day.dateString);
           setFormOpen(true);
           setError("");
@@ -218,6 +271,7 @@ export default function App() {
 
       <TouchableOpacity
         onPress={() => {
+          if (editingId) closeForm();
           setSelectedDate(todayString());
           setFormOpen(true);
           setError("");
@@ -234,22 +288,26 @@ export default function App() {
       {formOpen ? (
         <View style={styles.formBox}>
           <View style={styles.formHeader}>
-            <Text style={styles.formTitle}>New task</Text>
+            <Text style={styles.formTitle}>
+              {editingId ? "✏️ Edit task" : "New task"}
+            </Text>
             <TouchableOpacity onPress={closeForm}>
-              <Text style={styles.clear}>✕ Close</Text>
+              <Text style={styles.clear}>
+                ✕ {editingId ? "Cancel" : "Close"}
+              </Text>
             </TouchableOpacity>
           </View>
 
           <View style={styles.addRow}>
             <TextInput
               style={styles.input}
-              placeholder="Add a task..."
+              placeholder="Task name..."
               value={text}
               onChangeText={setText}
               onSubmitEditing={addTask}
             />
             <TouchableOpacity style={styles.addBtn} onPress={addTask}>
-              <Text style={styles.addText}>Add</Text>
+              <Text style={styles.addText}>{editingId ? "Save" : "Add"}</Text>
             </TouchableOpacity>
           </View>
 
@@ -273,7 +331,9 @@ export default function App() {
             style={[styles.repeatChip, repeatDaily && styles.repeatChipActive]}
             onPress={() => setRepeatDaily(!repeatDaily)}
           >
-            <Text style={repeatDaily ? styles.repeatTextActive : styles.repeatText}>
+            <Text
+              style={repeatDaily ? styles.repeatTextActive : styles.repeatText}
+            >
               🔁 Repeat daily {repeatDaily ? "(on)" : ""}
             </Text>
           </TouchableOpacity>
@@ -300,7 +360,10 @@ export default function App() {
             const done = isDoneOn(item, selectedDate);
             return (
               <View style={styles.task}>
-                <TouchableOpacity style={{ flex: 1 }} onPress={() => toggleTask(item.id)}>
+                <TouchableOpacity
+                  style={{ flex: 1 }}
+                  onPress={() => toggleTask(item.id)}
+                >
                   <Text style={[styles.taskText, done && styles.done]}>
                     {done ? "✅ " : "⬜ "}
                     {item.title}
@@ -309,6 +372,9 @@ export default function App() {
                     {item.repeat === "daily" ? "🔁 Daily  " : ""}
                     {item.time ? `⏰ ${formatTime(item.time)}` : ""}
                   </Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => startEdit(item)}>
+                  <Text style={styles.editBtn}>✏️</Text>
                 </TouchableOpacity>
                 <TouchableOpacity onPress={() => deleteTask(item.id)}>
                   <Text style={styles.delete}>🗑️</Text>
@@ -347,6 +413,7 @@ const styles = StyleSheet.create({
   taskText: { fontSize: 16 },
   metaText: { fontSize: 12, color: "#888", marginTop: 2 },
   done: { textDecorationLine: "line-through", color: "#999" },
+  editBtn: { fontSize: 20, paddingLeft: 12 },
   delete: { fontSize: 20, paddingLeft: 12 },
   empty: { textAlign: "center", color: "#999", marginTop: 20 },
   hint: { color: "#888", marginBottom: 12 },
