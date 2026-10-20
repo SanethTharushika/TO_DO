@@ -6,192 +6,20 @@ import {
 import { Calendar } from "react-native-calendars";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const STORAGE_KEY = "todo_tasks_v2";
-const REMINDED_KEY = "todo_reminded_v1";
-const COLOR = "#4f46e5";
-const GREEN = "#16a34a";
-const RED = "#dc2626";
-const DOT_PRIORITY = { [GREEN]: 1, [COLOR]: 2, [RED]: 3 };
-
-const pad = (n) => String(n).padStart(2, "0");
-
-const dateToString = (d) =>
-  `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-
-const todayString = () => dateToString(new Date());
-
-const tomorrowString = () => {
-  const d = new Date();
-  d.setDate(d.getDate() + 1);
-  return dateToString(d);
-};
-
-const yesterdayString = () => {
-  const d = new Date();
-  d.setDate(d.getDate() - 1);
-  return dateToString(d);
-};
-
-const nowTimeString = () => {
-  const d = new Date();
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-};
-
-const toMinutes = (t) => {
-  const [h, m] = t.split(":").map(Number);
-  return h * 60 + m;
-};
-
-const formatTime = (t) => {
-  const [h, m] = t.split(":").map(Number);
-  const suffix = h >= 12 ? "PM" : "AM";
-  const hour12 = h % 12 === 0 ? 12 : h % 12;
-  return `${hour12}:${pad(m)} ${suffix}`;
-};
-
-const prettyDate = (dateString) =>
-  new Date(dateString + "T00:00:00").toLocaleDateString("en-US", {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-  });
-
-const dayLabel = (date) => {
-  if (date === todayString()) return "Today";
-  if (date === yesterdayString()) return "Yesterday";
-  return new Date(date + "T00:00:00").toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-  });
-};
-
-const appearsOn = (task, date) =>
-  task.repeat === "daily" ? date >= task.date : task.date === date;
-
-const isDoneOn = (task, date) =>
-  task.repeat === "daily"
-    ? (task.doneDates || []).includes(date)
-    : !!task.done;
-
-// A daily task whose occurrence on this date was rescheduled
-const isMovedOn = (task, date) =>
-  task.repeat === "daily" && (task.movedDates || []).includes(date);
-
-// Status of a task on a given (past) date
-const statusOn = (task, date) => {
-  if (isDoneOn(task, date)) return "done";
-  if (isMovedOn(task, date)) return "moved";
-  return "missed";
-};
-
-// A task is missed if its time/day has passed and it is not done
-const isOverdue = (task) => {
-  const today = todayString();
-  const now = nowTimeString();
-  if (task.repeat === "daily") {
-    return (
-      appearsOn(task, today) &&
-      !isDoneOn(task, today) &&
-      !isMovedOn(task, today) &&
-      !!task.time &&
-      task.time < now
-    );
-  }
-  if (task.done) return false;
-  if (task.date < today) return true;
-  return task.date === today && !!task.time && task.time < now;
-};
-
-// ---------- Reminder helpers (web only) ----------
-const playBeep = () => {
-  if (Platform.OS !== "web") return;
-  try {
-    const Ctx = window.AudioContext || window.webkitAudioContext;
-    const ctx = new Ctx();
-    const osc = ctx.createOscillator();
-    osc.connect(ctx.destination);
-    osc.frequency.value = 880;
-    osc.start();
-    setTimeout(() => {
-      osc.stop();
-      ctx.close();
-    }, 400);
-  } catch (e) {}
-  try {
-    if (navigator.vibrate) navigator.vibrate(300);
-  } catch (e) {}
-};
-
-const showSystemNotification = (title, body) => {
-  if (Platform.OS !== "web" || typeof Notification === "undefined") return;
-  if (Notification.permission !== "granted") return;
-  try {
-    new Notification(title, { body });
-  } catch (e) {}
-};
-
-const getPermission = () =>
-  Platform.OS === "web" && typeof Notification !== "undefined"
-    ? Notification.permission
-    : "unsupported";
-
-function TimeField({ value, onChange }) {
-  if (Platform.OS === "web") {
-    return (
-      <input
-        type="time"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        style={{
-          fontSize: 16,
-          padding: 8,
-          borderRadius: 8,
-          border: "1px solid #ccc",
-          fontFamily: "inherit",
-        }}
-      />
-    );
-  }
-  return (
-    <TextInput
-      style={styles.timeInput}
-      placeholder="HH:MM"
-      value={value}
-      onChangeText={onChange}
-      maxLength={5}
-    />
-  );
-}
-
-function DateField({ value, onChange }) {
-  if (Platform.OS === "web") {
-    return (
-      <input
-        type="date"
-        value={value}
-        min={todayString()}
-        onChange={(e) => onChange(e.target.value)}
-        style={{
-          fontSize: 16,
-          padding: 8,
-          borderRadius: 8,
-          border: "1px solid #ccc",
-          fontFamily: "inherit",
-        }}
-      />
-    );
-  }
-  return (
-    <TextInput
-      style={styles.dateInput}
-      placeholder="YYYY-MM-DD"
-      value={value}
-      onChangeText={onChange}
-      maxLength={10}
-    />
-  );
-}
+import { COLOR, GREEN, RED, DOT_PRIORITY } from "./src/constants/colors";
+import { STORAGE_KEY, REMINDED_KEY } from "./src/constants/storageKeys";
+import {
+  dateToString, todayString, tomorrowString, nowTimeString,
+  toMinutes, formatTime, prettyDate, dayLabel,
+} from "./src/utils/dateUtils";
+import {
+  appearsOn, isDoneOn, isMovedOn, statusOn, isOverdue,
+} from "./src/utils/taskUtils";
+import {
+  playBeep, showSystemNotification, getPermission,
+} from "./src/utils/reminders";
+import TimeField from "./src/components/TimeField";
+import DateField from "./src/components/DateField";
 
 export default function App() {
   const [text, setText] = useState("");
@@ -913,8 +741,6 @@ const styles = StyleSheet.create({
   addText: { color: "#fff", fontWeight: "bold" },
   timeRow: { flexDirection: "row", alignItems: "center", marginBottom: 10 },
   timeLabel: { marginRight: 10, color: "#555" },
-  timeInput: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 8, width: 80 },
-  dateInput: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 8, width: 130 },
   clear: { color: COLOR, marginLeft: 10, fontWeight: "600" },
   repeatChip: { alignSelf: "flex-start", borderWidth: 1, borderColor: "#ccc", borderRadius: 16, paddingVertical: 6, paddingHorizontal: 14, marginBottom: 8 },
   repeatChipActive: { backgroundColor: COLOR, borderColor: COLOR },
