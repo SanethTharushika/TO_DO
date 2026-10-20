@@ -9,6 +9,9 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 const STORAGE_KEY = "todo_tasks_v2";
 const REMINDED_KEY = "todo_reminded_v1";
 const COLOR = "#4f46e5";
+const GREEN = "#16a34a";
+const RED = "#dc2626";
+const DOT_PRIORITY = { [GREEN]: 1, [COLOR]: 2, [RED]: 3 };
 
 const pad = (n) => String(n).padStart(2, "0");
 
@@ -71,6 +74,17 @@ const isDoneOn = (task, date) =>
     ? (task.doneDates || []).includes(date)
     : !!task.done;
 
+// A daily task whose occurrence on this date was rescheduled
+const isMovedOn = (task, date) =>
+  task.repeat === "daily" && (task.movedDates || []).includes(date);
+
+// Status of a task on a given (past) date
+const statusOn = (task, date) => {
+  if (isDoneOn(task, date)) return "done";
+  if (isMovedOn(task, date)) return "moved";
+  return "missed";
+};
+
 // A task is missed if its time/day has passed and it is not done
 const isOverdue = (task) => {
   const today = todayString();
@@ -79,6 +93,7 @@ const isOverdue = (task) => {
     return (
       appearsOn(task, today) &&
       !isDoneOn(task, today) &&
+      !isMovedOn(task, today) &&
       !!task.time &&
       task.time < now
     );
@@ -149,6 +164,35 @@ function TimeField({ value, onChange }) {
   );
 }
 
+function DateField({ value, onChange }) {
+  if (Platform.OS === "web") {
+    return (
+      <input
+        type="date"
+        value={value}
+        min={todayString()}
+        onChange={(e) => onChange(e.target.value)}
+        style={{
+          fontSize: 16,
+          padding: 8,
+          borderRadius: 8,
+          border: "1px solid #ccc",
+          fontFamily: "inherit",
+        }}
+      />
+    );
+  }
+  return (
+    <TextInput
+      style={styles.dateInput}
+      placeholder="YYYY-MM-DD"
+      value={value}
+      onChangeText={onChange}
+      maxLength={10}
+    />
+  );
+}
+
 export default function App() {
   const [text, setText] = useState("");
   const [time, setTime] = useState("");
@@ -161,8 +205,15 @@ export default function App() {
   const [editingId, setEditingId] = useState(null);
   const [alerts, setAlerts] = useState([]);
   const [permission, setPermission] = useState(getPermission());
-  const [, setTick] = useState(0); // forces a refresh so "missed" updates
+  const [, setTick] = useState(0);
   const remindedRef = useRef(new Set());
+
+  // Reschedule panel state
+  const [reschedule, setReschedule] = useState(null); // { taskId, occDate }
+  const [rDate, setRDate] = useState("");
+  const [rTime, setRTime] = useState("");
+  const [rError, setRError] = useState("");
+  const [notice, setNotice] = useState("");
 
   // Refresh every 30 seconds and when you come back to the tab
   useEffect(() => {
@@ -177,6 +228,13 @@ export default function App() {
       if (onVisible) document.removeEventListener("visibilitychange", onVisible);
     };
   }, []);
+
+  // Auto-hide the green notice
+  useEffect(() => {
+    if (!notice) return;
+    const id = setTimeout(() => setNotice(""), 4000);
+    return () => clearTimeout(id);
+  }, [notice]);
 
   // Load saved tasks and already-reminded keys
   useEffect(() => {
@@ -212,7 +270,13 @@ export default function App() {
       const fresh = [];
 
       tasks.forEach((t) => {
-        if (!t.time || !appearsOn(t, today) || isDoneOn(t, today)) return;
+        if (
+          !t.time ||
+          !appearsOn(t, today) ||
+          isDoneOn(t, today) ||
+          isMovedOn(t, today)
+        )
+          return;
         const diff = nowMin - toMinutes(t.time);
         if (diff < 0 || diff > 10) return;
         const key = `${t.id}|${today}|${t.time}`;
@@ -261,6 +325,7 @@ export default function App() {
   };
 
   const startEdit = (task) => {
+    cancelReschedule();
     setEditingId(task.id);
     setText(task.title);
     setTime(task.time || "");
@@ -334,6 +399,7 @@ export default function App() {
         repeat: repeatDaily ? "daily" : "none",
         done: false,
         doneDates: [],
+        movedDates: [],
       },
     ]);
     setText("");
@@ -359,55 +425,199 @@ export default function App() {
 
   const deleteTask = (id) => {
     if (id === editingId) closeForm();
+    if (reschedule && reschedule.taskId === id) cancelReschedule();
     setTasks(tasks.filter((t) => t.id !== id));
   };
 
-  // ----- Missed task actions -----
-  const markMissedDone = (task) => {
-    const today = todayString();
+  // ----- Missed / past task actions -----
+  const markDoneOn = (task, date) =>
     setTasks(
       tasks.map((t) => {
         if (t.id !== task.id) return t;
         if (t.repeat === "daily") {
-          return { ...t, doneDates: [...(t.doneDates || []), today] };
+          return { ...t, doneDates: [...(t.doneDates || []), date] };
         }
         return { ...t, done: true };
       })
     );
+
+  const startReschedule = (task, occDate) => {
+    if (editingId) closeForm();
+    setReschedule({ taskId: task.id, occDate });
+    setRDate(tomorrowString());
+    setRTime(task.time || "");
+    setRError("");
   };
 
-  const moveToTomorrow = (id) =>
-    setTasks(
-      tasks.map((t) =>
-        t.id === id ? { ...t, date: tomorrowString(), done: false } : t
-      )
-    );
+  const cancelReschedule = () => {
+    setReschedule(null);
+    setRError("");
+  };
 
+  const isRescheduling = (taskId, occDate) =>
+    !!reschedule &&
+    reschedule.taskId === taskId &&
+    reschedule.occDate === occDate;
+
+  const saveReschedule = () => {
+    if (!reschedule) return;
+    const task = tasks.find((t) => t.id === reschedule.taskId);
+    if (!task) {
+      cancelReschedule();
+      return;
+    }
+
+    if (
+      !/^\d{4}-\d{2}-\d{2}$/.test(rDate) ||
+      isNaN(new Date(rDate + "T00:00:00").getTime())
+    ) {
+      setRError("Pick a valid date.");
+      return;
+    }
+    if (rDate < todayString()) {
+      setRError("Choose today or a future date.");
+      return;
+    }
+    if (rTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(rTime)) {
+      setRError("Use the time format HH:MM, for example 14:30.");
+      return;
+    }
+    if (rDate === todayString() && rTime && rTime < nowTimeString()) {
+      setRError("That time has already passed today. Pick a later time.");
+      return;
+    }
+
+    if (task.repeat === "daily") {
+      // Only this day's occurrence moves: copy it as a one-time task
+      const copy = {
+        id: Date.now().toString(),
+        title: task.title,
+        date: rDate,
+        time: rTime,
+        repeat: "none",
+        done: false,
+        doneDates: [],
+        movedDates: [],
+      };
+      setTasks([
+        ...tasks.map((t) =>
+          t.id === task.id
+            ? { ...t, movedDates: [...(t.movedDates || []), reschedule.occDate] }
+            : t
+        ),
+        copy,
+      ]);
+    } else {
+      setTasks(
+        tasks.map((t) =>
+          t.id === task.id ? { ...t, date: rDate, time: rTime, done: false } : t
+        )
+      );
+    }
+
+    setNotice(
+      `📅 "${task.title}" moved to ${prettyDate(rDate)}${
+        rTime ? " at " + formatTime(rTime) : ""
+      }`
+    );
+    cancelReschedule();
+  };
+
+  const renderReschedule = () => (
+    <View style={styles.reschedBox}>
+      <Text style={styles.reschedTitle}>📅 Reschedule to</Text>
+
+      <View style={styles.timeRow}>
+        <Text style={styles.timeLabel}>Date</Text>
+        <DateField
+          value={rDate}
+          onChange={(v) => {
+            setRDate(v);
+            setRError("");
+          }}
+        />
+      </View>
+
+      <View style={styles.timeRow}>
+        <Text style={styles.timeLabel}>⏰ Time</Text>
+        <TimeField
+          value={rTime}
+          onChange={(v) => {
+            setRTime(v);
+            setRError("");
+          }}
+        />
+        {rTime !== "" && (
+          <TouchableOpacity onPress={() => setRTime("")}>
+            <Text style={styles.clear}>Clear</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+
+      {rError !== "" && <Text style={styles.error}>{rError}</Text>}
+
+      <View style={styles.reschedActions}>
+        <TouchableOpacity style={styles.addBtn} onPress={saveReschedule}>
+          <Text style={styles.addText}>Save</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={cancelReschedule}>
+          <Text style={styles.cancelText}>Cancel</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+
+  const today = todayString();
+  const pastView = selectedDate < today;
+
+  // ----- Calendar dots: green = completed, red = missed, purple = upcoming -----
   const markedDates = {};
-  tasks
-    .filter((t) => t.repeat !== "daily")
-    .forEach((t) => {
-      markedDates[t.date] = { marked: true, dotColor: COLOR };
-    });
+  const mark = (date, color) => {
+    const cur = markedDates[date];
+    if (!cur || DOT_PRIORITY[color] > DOT_PRIORITY[cur.dotColor]) {
+      markedDates[date] = { marked: true, dotColor: color };
+    }
+  };
+
+  tasks.forEach((t) => {
+    if (t.repeat === "daily") {
+      const d = new Date(t.date + "T00:00:00");
+      for (let i = 0; i < 366; i++) {
+        const ds = dateToString(d);
+        if (ds >= today) break;
+        mark(ds, statusOn(t, ds) === "missed" ? RED : GREEN);
+        d.setDate(d.getDate() + 1);
+      }
+    } else if (t.date < today) {
+      mark(t.date, t.done ? GREEN : RED);
+    } else {
+      mark(t.date, COLOR);
+    }
+  });
+
   markedDates[selectedDate] = {
     ...(markedDates[selectedDate] || {}),
     selected: true,
     selectedColor: COLOR,
   };
 
-  // Missed tasks (oldest first)
+  // Missed tasks box (oldest first)
   const missedTasks = tasks
     .filter(isOverdue)
     .sort((a, b) => {
-      const da = a.repeat === "daily" ? todayString() : a.date;
-      const db = b.repeat === "daily" ? todayString() : b.date;
+      const da = a.repeat === "daily" ? today : a.date;
+      const db = b.repeat === "daily" ? today : b.date;
       if (da !== db) return da.localeCompare(db);
       return (a.time || "").localeCompare(b.time || "");
     });
 
-  // Day list: tasks for the selected day, without the missed ones
+  // Tasks for the selected day
   const dayTasks = tasks
-    .filter((t) => appearsOn(t, selectedDate) && !isOverdue(t))
+    .filter((t) => {
+      if (!appearsOn(t, selectedDate)) return false;
+      if (pastView) return true; // history: show everything with its status
+      return !isOverdue(t) && !isMovedOn(t, selectedDate);
+    })
     .sort((a, b) => {
       if (!a.time && !b.time) return 0;
       if (!a.time) return 1;
@@ -415,50 +625,65 @@ export default function App() {
       return a.time.localeCompare(b.time);
     });
 
+  const pastDone = pastView
+    ? dayTasks.filter((t) => statusOn(t, selectedDate) === "done").length
+    : 0;
+  const pastMissed = pastView
+    ? dayTasks.filter((t) => statusOn(t, selectedDate) === "missed").length
+    : 0;
+
   const header = (
     <View>
       <Text style={styles.heading}>My To-Do</Text>
 
-      {missedTasks.length > 0 && (
+      {notice !== "" && (
+        <View style={styles.noticeBox}>
+          <Text style={styles.noticeText}>{notice}</Text>
+        </View>
+      )}
+
+      {!pastView && missedTasks.length > 0 && (
         <View style={styles.missedBox}>
           <Text style={styles.missedTitle}>
             ⚠️ Missed ({missedTasks.length})
           </Text>
-          {missedTasks.map((t) => (
-            <View key={t.id} style={styles.missedRow}>
-              <Text style={styles.missedText}>{t.title}</Text>
-              <Text style={styles.missedMeta}>
-                {t.repeat === "daily" ? "🔁 " : ""}
-                {dayLabel(t.repeat === "daily" ? todayString() : t.date)}
-                {t.time ? ` · ${formatTime(t.time)}` : ""}
-              </Text>
-              <View style={styles.missedActions}>
-                <TouchableOpacity onPress={() => markMissedDone(t)}>
-                  <Text style={styles.missedAction}>✅ Done</Text>
-                </TouchableOpacity>
-                {t.repeat !== "daily" && (
-                  <TouchableOpacity onPress={() => moveToTomorrow(t.id)}>
-                    <Text style={styles.missedAction}>📅 Tomorrow</Text>
+          {missedTasks.map((t) => {
+            const occ = t.repeat === "daily" ? today : t.date;
+            return (
+              <View key={t.id} style={styles.missedRow}>
+                <Text style={styles.missedText}>{t.title}</Text>
+                <Text style={styles.missedMeta}>
+                  {t.repeat === "daily" ? "🔁 " : ""}
+                  {dayLabel(occ)}
+                  {t.time ? ` · ${formatTime(t.time)}` : ""}
+                </Text>
+                <View style={styles.missedActions}>
+                  <TouchableOpacity onPress={() => markDoneOn(t, occ)}>
+                    <Text style={styles.missedAction}>✅ Done</Text>
                   </TouchableOpacity>
-                )}
-                {t.repeat !== "daily" && (
-                  <TouchableOpacity onPress={() => deleteTask(t.id)}>
-                    <Text style={styles.missedAction}>🗑️</Text>
+                  <TouchableOpacity onPress={() => startReschedule(t, occ)}>
+                    <Text style={styles.missedAction}>📅 Reschedule</Text>
                   </TouchableOpacity>
-                )}
+                  {t.repeat !== "daily" && (
+                    <TouchableOpacity onPress={() => deleteTask(t.id)}>
+                      <Text style={styles.missedAction}>🗑️</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+                {isRescheduling(t.id, occ) && renderReschedule()}
               </View>
-            </View>
-          ))}
+            );
+          })}
         </View>
       )}
 
       <Calendar
         current={selectedDate}
-        minDate={todayString()}
         onDayPress={(day) => {
           if (editingId) closeForm();
+          cancelReschedule();
           setSelectedDate(day.dateString);
-          setFormOpen(true);
+          setFormOpen(day.dateString >= todayString());
           setError("");
         }}
         markedDates={markedDates}
@@ -470,9 +695,12 @@ export default function App() {
         style={styles.calendar}
       />
 
+      <Text style={styles.legend}>🟣 Upcoming   🟢 Completed   🔴 Missed</Text>
+
       <TouchableOpacity
         onPress={() => {
           if (editingId) closeForm();
+          cancelReschedule();
           setSelectedDate(todayString());
           setFormOpen(true);
           setError("");
@@ -490,9 +718,16 @@ export default function App() {
       <Text style={styles.dateTitle}>{prettyDate(selectedDate)}</Text>
       <Text style={styles.count}>
         {dayTasks.length} {dayTasks.length === 1 ? "task" : "tasks"}
+        {pastView && dayTasks.length > 0
+          ? `  ·  ✅ ${pastDone} completed  ·  ❌ ${pastMissed} missed`
+          : ""}
       </Text>
 
-      {formOpen ? (
+      {pastView ? (
+        <Text style={styles.hint}>
+          📜 Past day, view only. You can reschedule missed tasks.
+        </Text>
+      ) : formOpen ? (
         <View style={styles.formBox}>
           <View style={styles.formHeader}>
             <Text style={styles.formTitle}>
@@ -569,12 +804,67 @@ export default function App() {
 
         <FlatList
           data={dayTasks}
+          extraData={{ reschedule, rDate, rTime, rError, selectedDate }}
           keyExtractor={(item) => item.id}
           ListHeaderComponent={header}
           ListEmptyComponent={
-            <Text style={styles.empty}>No tasks for this day.</Text>
+            <Text style={styles.empty}>
+              {pastView ? "No tasks on this day." : "No tasks for this day."}
+            </Text>
           }
           renderItem={({ item }) => {
+            // ----- Past day: read-only with status -----
+            if (pastView) {
+              const status = statusOn(item, selectedDate);
+              return (
+                <View style={styles.pastItem}>
+                  <Text
+                    style={[styles.taskText, status === "done" && styles.done]}
+                  >
+                    {item.title}
+                  </Text>
+                  <Text style={styles.metaText}>
+                    {item.repeat === "daily" ? "🔁 Daily  " : ""}
+                    {item.time ? `⏰ ${formatTime(item.time)}` : ""}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.badge,
+                      status === "done"
+                        ? styles.badgeDone
+                        : status === "moved"
+                        ? styles.badgeMoved
+                        : styles.badgeMissed,
+                    ]}
+                  >
+                    {status === "done"
+                      ? "✅ Completed"
+                      : status === "moved"
+                      ? "📅 Rescheduled"
+                      : "❌ Missed"}
+                  </Text>
+
+                  {status === "missed" && (
+                    <View style={styles.missedActions}>
+                      <TouchableOpacity
+                        onPress={() => markDoneOn(item, selectedDate)}
+                      >
+                        <Text style={styles.missedAction}>✅ Mark done</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => startReschedule(item, selectedDate)}
+                      >
+                        <Text style={styles.missedAction}>📅 Reschedule</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+
+                  {isRescheduling(item.id, selectedDate) && renderReschedule()}
+                </View>
+              );
+            }
+
+            // ----- Today / future -----
             const done = isDoneOn(item, selectedDate);
             return (
               <View style={styles.task}>
@@ -611,18 +901,20 @@ const styles = StyleSheet.create({
   container: { flex: 1, width: "100%", maxWidth: 600, alignSelf: "center", paddingHorizontal: 20, paddingTop: 40 },
   heading: { fontSize: 28, fontWeight: "bold", marginBottom: 12 },
   calendar: { borderWidth: 1, borderColor: "#eee", borderRadius: 12 },
-  todayLink: { color: COLOR, textAlign: "right", marginTop: 8, fontWeight: "600" },
+  legend: { color: "#888", fontSize: 12, marginTop: 8 },
+  todayLink: { color: COLOR, textAlign: "right", marginTop: 4, fontWeight: "600" },
   notifBtn: { alignSelf: "flex-start", borderWidth: 1, borderColor: COLOR, borderRadius: 16, paddingVertical: 6, paddingHorizontal: 14, marginTop: 8 },
   notifText: { color: COLOR, fontWeight: "600" },
   dateTitle: { fontSize: 18, fontWeight: "bold", marginTop: 12 },
   count: { color: "#888", marginBottom: 12 },
   addRow: { flexDirection: "row", marginBottom: 12 },
   input: { flex: 1, borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 12, marginRight: 8 },
-  addBtn: { backgroundColor: COLOR, borderRadius: 8, paddingHorizontal: 20, justifyContent: "center" },
+  addBtn: { backgroundColor: COLOR, borderRadius: 8, paddingHorizontal: 20, paddingVertical: 10, justifyContent: "center" },
   addText: { color: "#fff", fontWeight: "bold" },
   timeRow: { flexDirection: "row", alignItems: "center", marginBottom: 10 },
   timeLabel: { marginRight: 10, color: "#555" },
   timeInput: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 8, width: 80 },
+  dateInput: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 8, width: 130 },
   clear: { color: COLOR, marginLeft: 10, fontWeight: "600" },
   repeatChip: { alignSelf: "flex-start", borderWidth: 1, borderColor: "#ccc", borderRadius: 16, paddingVertical: 6, paddingHorizontal: 14, marginBottom: 8 },
   repeatChipActive: { backgroundColor: COLOR, borderColor: COLOR },
@@ -643,11 +935,22 @@ const styles = StyleSheet.create({
   alertBox: { flexDirection: "row", alignItems: "center", backgroundColor: "#fef3c7", borderRadius: 12, padding: 12, marginBottom: 8 },
   alertText: { flex: 1, fontWeight: "600", color: "#92400e" },
   alertClose: { color: COLOR, fontWeight: "600", marginLeft: 10 },
+  noticeBox: { backgroundColor: "#dcfce7", borderRadius: 12, padding: 12, marginBottom: 12 },
+  noticeText: { color: "#166534", fontWeight: "600" },
   missedBox: { backgroundColor: "#fef2f2", borderWidth: 1, borderColor: "#fecaca", borderRadius: 12, padding: 12, marginBottom: 12 },
   missedTitle: { fontSize: 16, fontWeight: "bold", color: "#b91c1c", marginBottom: 8 },
   missedRow: { paddingVertical: 8, borderTopWidth: 1, borderTopColor: "#fecaca" },
   missedText: { fontSize: 16, color: "#7f1d1d" },
   missedMeta: { fontSize: 12, color: "#b91c1c", marginTop: 2 },
-  missedActions: { flexDirection: "row", marginTop: 6 },
-  missedAction: { color: COLOR, fontWeight: "600", marginRight: 16 },
+  missedActions: { flexDirection: "row", flexWrap: "wrap", marginTop: 6 },
+  missedAction: { color: COLOR, fontWeight: "600", marginRight: 16, marginBottom: 4 },
+  pastItem: { paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "#eee" },
+  badge: { alignSelf: "flex-start", fontSize: 12, fontWeight: "600", borderRadius: 10, paddingVertical: 3, paddingHorizontal: 10, marginTop: 6, overflow: "hidden" },
+  badgeDone: { backgroundColor: "#dcfce7", color: "#166534" },
+  badgeMissed: { backgroundColor: "#fee2e2", color: "#b91c1c" },
+  badgeMoved: { backgroundColor: "#e0e7ff", color: "#3730a3" },
+  reschedBox: { backgroundColor: "#f5f3ff", borderRadius: 12, padding: 12, marginTop: 10 },
+  reschedTitle: { fontSize: 15, fontWeight: "bold", marginBottom: 10 },
+  reschedActions: { flexDirection: "row", alignItems: "center", marginTop: 4 },
+  cancelText: { color: COLOR, fontWeight: "600", marginLeft: 16 },
 });
