@@ -20,6 +20,8 @@ import {
 } from "./src/utils/reminders";
 import TimeField from "./src/components/TimeField";
 import DateField from "./src/components/DateField";
+import CalendarDay from "./src/components/CalendarDay";
+
 
 export default function App() {
   const [text, setText] = useState("");
@@ -125,7 +127,7 @@ export default function App() {
         (k) => k.split("|")[1] === today
       );
       remindedRef.current = new Set(keep);
-      AsyncStorage.setItem(REMINDED_KEY, JSON.stringify(keep)).catch(() => {});
+      AsyncStorage.setItem(REMINDED_KEY, JSON.stringify(keep)).catch(() => { });
     };
 
     check();
@@ -140,7 +142,7 @@ export default function App() {
     try {
       const result = await Notification.requestPermission();
       setPermission(result);
-    } catch (e) {}
+    } catch (e) { }
   };
 
   const closeForm = () => {
@@ -344,8 +346,7 @@ export default function App() {
     }
 
     setNotice(
-      `📅 "${task.title}" moved to ${prettyDate(rDate)}${
-        rTime ? " at " + formatTime(rTime) : ""
+      `📅 "${task.title}" moved to ${prettyDate(rDate)}${rTime ? " at " + formatTime(rTime) : ""
       }`
     );
     cancelReschedule();
@@ -507,6 +508,7 @@ export default function App() {
 
       <Calendar
         current={selectedDate}
+        dayComponent={CalendarDay}
         onDayPress={(day) => {
           if (editingId) closeForm();
           cancelReschedule();
@@ -661,15 +663,15 @@ export default function App() {
                       status === "done"
                         ? styles.badgeDone
                         : status === "moved"
-                        ? styles.badgeMoved
-                        : styles.badgeMissed,
+                          ? styles.badgeMoved
+                          : styles.badgeMissed,
                     ]}
                   >
                     {status === "done"
                       ? "✅ Completed"
                       : status === "moved"
-                      ? "📅 Rescheduled"
-                      : "❌ Missed"}
+                        ? "📅 Rescheduled"
+                        : "❌ Missed"}
                   </Text>
 
                   {status === "missed" && (
