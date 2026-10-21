@@ -38,3 +38,13 @@ export const isOverdue = (task) => {
   if (task.date < today) return true;
   return task.date === today && !!task.time && task.time < now;
 };
+
+export const getDayStats = (tasks, date) => {
+  const list = tasks.filter(
+    (t) => appearsOn(t, date) && !isMovedOn(t, date)
+  );
+  const total = list.length;
+  const done = list.filter((t) => isDoneOn(t, date)).length;
+  const percent = total === 0 ? 0 : Math.round((done / total) * 100);
+  return { total, done, percent };
+};

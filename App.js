@@ -6,14 +6,14 @@ import {
 import { Calendar } from "react-native-calendars";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-import { COLOR, GREEN, RED, DOT_PRIORITY } from "./src/constants/colors";
+import { COLOR, GREEN, RED, AMBER } from "./src/constants/colors";
 import { STORAGE_KEY, REMINDED_KEY } from "./src/constants/storageKeys";
 import {
   dateToString, todayString, tomorrowString, nowTimeString,
   toMinutes, formatTime, prettyDate, dayLabel,
 } from "./src/utils/dateUtils";
 import {
-  appearsOn, isDoneOn, isMovedOn, statusOn, isOverdue,
+  appearsOn, isDoneOn, isMovedOn, statusOn, isOverdue, getDayStats,
 } from "./src/utils/taskUtils";
 import {
   playBeep, showSystemNotification, getPermission,
@@ -399,36 +399,51 @@ export default function App() {
   const today = todayString();
   const pastView = selectedDate < today;
 
-  // ----- Calendar dots: green = completed, red = missed, purple = upcoming -----
+    const stats = getDayStats(tasks, selectedDate);
+  const progressColor =
+    stats.percent === 100
+      ? GREEN
+      : selectedDate === today
+      ? COLOR
+      : stats.percent === 0
+      ? RED
+      : AMBER;
+  const eachTask = Math.round(100 / (stats.total || 1));
+  const exact = stats.total > 0 && 100 % stats.total === 0;
+
+   // ----- Calendar: progress bar on today/past days, purple dot on future days -----
   const markedDates = {};
-  const mark = (date, color) => {
-    const cur = markedDates[date];
-    if (!cur || DOT_PRIORITY[color] > DOT_PRIORITY[cur.dotColor]) {
-      markedDates[date] = { marked: true, dotColor: color };
-    }
-  };
+  const candidateDates = new Set();
+
+  const windowStart = new Date();
+  windowStart.setDate(windowStart.getDate() - 365);
+  windowStart.setHours(0, 0, 0, 0);
 
   tasks.forEach((t) => {
     if (t.repeat === "daily") {
       const d = new Date(t.date + "T00:00:00");
-      for (let i = 0; i < 366; i++) {
+      if (d < windowStart) d.setTime(windowStart.getTime());
+      for (let i = 0; i < 400; i++) {
         const ds = dateToString(d);
-        if (ds >= today) break;
-        mark(ds, statusOn(t, ds) === "missed" ? RED : GREEN);
+        if (ds > today) break;
+        candidateDates.add(ds);
         d.setDate(d.getDate() + 1);
       }
-    } else if (t.date < today) {
-      mark(t.date, t.done ? GREEN : RED);
+      if (t.date > today) candidateDates.add(t.date);
     } else {
-      mark(t.date, COLOR);
+      candidateDates.add(t.date);
     }
   });
 
-  markedDates[selectedDate] = {
-    ...(markedDates[selectedDate] || {}),
-    selected: true,
-    selectedColor: COLOR,
-  };
+  candidateDates.forEach((ds) => {
+    const s = getDayStats(tasks, ds);
+    if (s.total === 0) return;
+    if (ds > today) {
+      markedDates[ds] = { marked: true, dotColor: COLOR };
+    } else {
+      markedDates[ds] = { percent: s.percent, total: s.total };
+    }
+  });
 
   // Missed tasks box (oldest first)
   const missedTasks = tasks
@@ -525,7 +540,7 @@ export default function App() {
         style={styles.calendar}
       />
 
-      <Text style={styles.legend}>🟣 Upcoming   🟢 Completed   🔴 Missed</Text>
+      <Text style={styles.legend}> 🟣 Upcoming   ·   Bar under a date = % completed </Text>
 
       <TouchableOpacity
         onPress={() => {
@@ -546,12 +561,37 @@ export default function App() {
       )}
 
       <Text style={styles.dateTitle}>{prettyDate(selectedDate)}</Text>
-      <Text style={styles.count}>
+            <Text style={styles.count}>
         {dayTasks.length} {dayTasks.length === 1 ? "task" : "tasks"}
         {pastView && dayTasks.length > 0
           ? `  ·  ✅ ${pastDone} completed  ·  ❌ ${pastMissed} missed`
           : ""}
       </Text>
+
+      {selectedDate <= today && stats.total > 0 && (
+        <View style={styles.progressCard}>
+          <View style={styles.progressTop}>
+            <Text style={[styles.progressPercent, { color: progressColor }]}>
+              {stats.percent}%
+            </Text>
+            <Text style={styles.progressText}>
+              {stats.done} of {stats.total}{" "}
+              {stats.total === 1 ? "task" : "tasks"} completed
+            </Text>
+          </View>
+          <View style={styles.progressTrack}>
+            <View
+              style={[
+                styles.progressFill,
+                { width: `${stats.percent}%`, backgroundColor: progressColor },
+              ]}
+            />
+          </View>
+          <Text style={styles.progressHint}>
+            Each task {exact ? "=" : "≈"} {eachTask}%
+          </Text>
+        </View>
+      )}
 
       {pastView ? (
         <Text style={styles.hint}>
@@ -781,4 +821,11 @@ const styles = StyleSheet.create({
   reschedTitle: { fontSize: 15, fontWeight: "bold", marginBottom: 10 },
   reschedActions: { flexDirection: "row", alignItems: "center", marginTop: 4 },
   cancelText: { color: COLOR, fontWeight: "600", marginLeft: 16 },
+    progressCard: { backgroundColor: "#f9fafb", borderRadius: 12, padding: 12, marginBottom: 12 },
+  progressTop: { flexDirection: "row", alignItems: "baseline", marginBottom: 8 },
+  progressPercent: { fontSize: 28, fontWeight: "bold", marginRight: 10 },
+  progressText: { color: "#555", fontSize: 14 },
+  progressTrack: { height: 8, borderRadius: 4, backgroundColor: "#e5e7eb", overflow: "hidden" },
+  progressFill: { height: 8, borderRadius: 4 },
+  progressHint: { color: "#888", fontSize: 12, marginTop: 6 },
 });
