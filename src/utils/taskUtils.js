@@ -48,3 +48,31 @@ export const getDayStats = (tasks, date) => {
   const percent = total === 0 ? 0 : Math.round((done / total) * 100);
   return { total, done, percent };
 };
+
+// Missed tasks, oldest first
+export const getMissedTasks = (tasks) => {
+  const today = todayString();
+  return tasks.filter(isOverdue).sort((a, b) => {
+    const da = a.repeat === "daily" ? today : a.date;
+    const db = b.repeat === "daily" ? today : b.date;
+    if (da !== db) return da.localeCompare(db);
+    return (a.time || "").localeCompare(b.time || "");
+  });
+};
+
+// Tasks shown for one day, sorted by time (no time goes last)
+export const getDayTasks = (tasks, date) => {
+  const pastView = date < todayString();
+  return tasks
+    .filter((t) => {
+      if (!appearsOn(t, date)) return false;
+      if (pastView) return true; // history: show everything with its status
+      return !isOverdue(t) && !isMovedOn(t, date);
+    })
+    .sort((a, b) => {
+      if (!a.time && !b.time) return 0;
+      if (!a.time) return 1;
+      if (!b.time) return -1;
+      return a.time.localeCompare(b.time);
+    });
+};
