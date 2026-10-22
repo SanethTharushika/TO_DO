@@ -1,63 +1,52 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import {
   View, Text, TextInput, TouchableOpacity,
-  FlatList, StyleSheet, SafeAreaView, Platform,
+  FlatList, StyleSheet, SafeAreaView,
 } from "react-native";
 import { Calendar } from "react-native-calendars";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { COLOR, GREEN, RED, AMBER } from "./src/constants/colors";
-import { STORAGE_KEY, REMINDED_KEY } from "./src/constants/storageKeys";
 import {
   dateToString, todayString, tomorrowString, nowTimeString,
-  toMinutes, formatTime, prettyDate, dayLabel,
+  formatTime, prettyDate, dayLabel,
 } from "./src/utils/dateUtils";
 import {
   appearsOn, isDoneOn, isMovedOn, statusOn, isOverdue, getDayStats,
 } from "./src/utils/taskUtils";
-import {
-  playBeep, showSystemNotification, getPermission,
-} from "./src/utils/reminders";
 import TimeField from "./src/components/TimeField";
 import DateField from "./src/components/DateField";
 import CalendarDay from "./src/components/CalendarDay";
-
+import useTasks from "./src/hooks/useTasks";
+import useReminders from "./src/hooks/useReminders";
+import useTick from "./src/hooks/useTick";
 
 export default function App() {
+  // ----- Data and background logic (hooks) -----
+  const {
+    tasks, loaded, addTask, updateTask, toggleTask,
+    deleteTask, markDoneOn, rescheduleTask,
+  } = useTasks();
+  const { alerts, dismissAlert, permission, enableNotifications } =
+    useReminders(tasks, loaded);
+  useTick();
+
+  // ----- Screen state -----
+  const [selectedDate, setSelectedDate] = useState(todayString());
+  const [notice, setNotice] = useState("");
+
+  // Add / edit form state
+  const [formOpen, setFormOpen] = useState(false);
+  const [editingId, setEditingId] = useState(null);
   const [text, setText] = useState("");
   const [time, setTime] = useState("");
   const [repeatDaily, setRepeatDaily] = useState(false);
   const [error, setError] = useState("");
-  const [tasks, setTasks] = useState([]);
-  const [selectedDate, setSelectedDate] = useState(todayString());
-  const [loaded, setLoaded] = useState(false);
-  const [formOpen, setFormOpen] = useState(false);
-  const [editingId, setEditingId] = useState(null);
-  const [alerts, setAlerts] = useState([]);
-  const [permission, setPermission] = useState(getPermission());
-  const [, setTick] = useState(0);
-  const remindedRef = useRef(new Set());
 
   // Reschedule panel state
   const [reschedule, setReschedule] = useState(null); // { taskId, occDate }
   const [rDate, setRDate] = useState("");
   const [rTime, setRTime] = useState("");
   const [rError, setRError] = useState("");
-  const [notice, setNotice] = useState("");
-
-  // Refresh every 30 seconds and when you come back to the tab
-  useEffect(() => {
-    const id = setInterval(() => setTick((n) => n + 1), 30000);
-    let onVisible;
-    if (Platform.OS === "web" && typeof document !== "undefined") {
-      onVisible = () => setTick((n) => n + 1);
-      document.addEventListener("visibilitychange", onVisible);
-    }
-    return () => {
-      clearInterval(id);
-      if (onVisible) document.removeEventListener("visibilitychange", onVisible);
-    };
-  }, []);
 
   // Auto-hide the green notice
   useEffect(() => {
@@ -66,85 +55,7 @@ export default function App() {
     return () => clearTimeout(id);
   }, [notice]);
 
-  // Load saved tasks and already-reminded keys
-  useEffect(() => {
-    const load = async () => {
-      try {
-        const saved = await AsyncStorage.getItem(STORAGE_KEY);
-        if (saved) setTasks(JSON.parse(saved));
-        const rem = await AsyncStorage.getItem(REMINDED_KEY);
-        if (rem) remindedRef.current = new Set(JSON.parse(rem));
-      } catch (e) {
-        console.log("Load error", e);
-      }
-      setLoaded(true);
-    };
-    load();
-  }, []);
-
-  // Save tasks whenever they change
-  useEffect(() => {
-    if (!loaded) return;
-    AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(tasks)).catch((e) =>
-      console.log("Save error", e)
-    );
-  }, [tasks, loaded]);
-
-  // Reminder checker: runs now and then every 15 seconds
-  useEffect(() => {
-    if (!loaded) return;
-
-    const check = () => {
-      const today = todayString();
-      const nowMin = toMinutes(nowTimeString());
-      const fresh = [];
-
-      tasks.forEach((t) => {
-        if (
-          !t.time ||
-          !appearsOn(t, today) ||
-          isDoneOn(t, today) ||
-          isMovedOn(t, today)
-        )
-          return;
-        const diff = nowMin - toMinutes(t.time);
-        if (diff < 0 || diff > 10) return;
-        const key = `${t.id}|${today}|${t.time}`;
-        if (remindedRef.current.has(key)) return;
-        remindedRef.current.add(key);
-        fresh.push({ key, title: t.title, time: t.time });
-      });
-
-      if (fresh.length === 0) return;
-
-      setAlerts((prev) => [...prev, ...fresh]);
-      fresh.forEach((f) =>
-        showSystemNotification("⏰ Task reminder", `${f.title} (${formatTime(f.time)})`)
-      );
-      playBeep();
-
-      const keep = [...remindedRef.current].filter(
-        (k) => k.split("|")[1] === today
-      );
-      remindedRef.current = new Set(keep);
-      AsyncStorage.setItem(REMINDED_KEY, JSON.stringify(keep)).catch(() => { });
-    };
-
-    check();
-    const id = setInterval(check, 15000);
-    return () => clearInterval(id);
-  }, [tasks, loaded]);
-
-  const dismissAlert = (key) =>
-    setAlerts((prev) => prev.filter((a) => a.key !== key));
-
-  const enableNotifications = async () => {
-    try {
-      const result = await Notification.requestPermission();
-      setPermission(result);
-    } catch (e) { }
-  };
-
+  // ----- Form actions -----
   const closeForm = () => {
     setFormOpen(false);
     setEditingId(null);
@@ -164,7 +75,8 @@ export default function App() {
     setFormOpen(true);
   };
 
-  const addTask = () => {
+  // Handles both adding a new task and saving an edit
+  const submitTask = () => {
     if (!text.trim()) return;
 
     if (!editingId && selectedDate < todayString()) {
@@ -177,12 +89,16 @@ export default function App() {
       return;
     }
 
+    const repeat = repeatDaily ? "daily" : "none";
+
     if (editingId) {
       const original = tasks.find((t) => t.id === editingId);
 
+      // Only block a past time if the time was actually changed
       if (
         !repeatDaily &&
         time &&
+        original &&
         time !== original.time &&
         selectedDate === todayString() &&
         time < nowTimeString()
@@ -191,20 +107,7 @@ export default function App() {
         return;
       }
 
-      setTasks(
-        tasks.map((t) => {
-          if (t.id !== editingId) return t;
-          const becameOneTime = t.repeat === "daily" && !repeatDaily;
-          return {
-            ...t,
-            title: text.trim(),
-            time: time,
-            repeat: repeatDaily ? "daily" : "none",
-            date: becameOneTime ? selectedDate : t.date,
-            done: becameOneTime ? isDoneOn(t, selectedDate) : t.done,
-          };
-        })
-      );
+      updateTask(editingId, { title: text.trim(), time, repeat }, selectedDate);
       closeForm();
       return;
     }
@@ -219,58 +122,20 @@ export default function App() {
       return;
     }
 
-    setTasks([
-      ...tasks,
-      {
-        id: Date.now().toString(),
-        title: text.trim(),
-        date: selectedDate,
-        time: time,
-        repeat: repeatDaily ? "daily" : "none",
-        done: false,
-        doneDates: [],
-        movedDates: [],
-      },
-    ]);
+    addTask({ title: text.trim(), date: selectedDate, time, repeat });
     setText("");
     setTime("");
     setRepeatDaily(false);
     setError("");
   };
 
-  const toggleTask = (id) =>
-    setTasks(
-      tasks.map((t) => {
-        if (t.id !== id) return t;
-        if (t.repeat === "daily") {
-          const list = t.doneDates || [];
-          const doneDates = list.includes(selectedDate)
-            ? list.filter((d) => d !== selectedDate)
-            : [...list, selectedDate];
-          return { ...t, doneDates };
-        }
-        return { ...t, done: !t.done };
-      })
-    );
-
-  const deleteTask = (id) => {
+  const handleDelete = (id) => {
     if (id === editingId) closeForm();
     if (reschedule && reschedule.taskId === id) cancelReschedule();
-    setTasks(tasks.filter((t) => t.id !== id));
+    deleteTask(id);
   };
 
-  // ----- Missed / past task actions -----
-  const markDoneOn = (task, date) =>
-    setTasks(
-      tasks.map((t) => {
-        if (t.id !== task.id) return t;
-        if (t.repeat === "daily") {
-          return { ...t, doneDates: [...(t.doneDates || []), date] };
-        }
-        return { ...t, done: true };
-      })
-    );
-
+  // ----- Reschedule actions -----
   const startReschedule = (task, occDate) => {
     if (editingId) closeForm();
     setReschedule({ taskId: task.id, occDate });
@@ -317,36 +182,11 @@ export default function App() {
       return;
     }
 
-    if (task.repeat === "daily") {
-      // Only this day's occurrence moves: copy it as a one-time task
-      const copy = {
-        id: Date.now().toString(),
-        title: task.title,
-        date: rDate,
-        time: rTime,
-        repeat: "none",
-        done: false,
-        doneDates: [],
-        movedDates: [],
-      };
-      setTasks([
-        ...tasks.map((t) =>
-          t.id === task.id
-            ? { ...t, movedDates: [...(t.movedDates || []), reschedule.occDate] }
-            : t
-        ),
-        copy,
-      ]);
-    } else {
-      setTasks(
-        tasks.map((t) =>
-          t.id === task.id ? { ...t, date: rDate, time: rTime, done: false } : t
-        )
-      );
-    }
+    rescheduleTask(reschedule.taskId, reschedule.occDate, rDate, rTime);
 
     setNotice(
-      `📅 "${task.title}" moved to ${prettyDate(rDate)}${rTime ? " at " + formatTime(rTime) : ""
+      `📅 "${task.title}" moved to ${prettyDate(rDate)}${
+        rTime ? " at " + formatTime(rTime) : ""
       }`
     );
     cancelReschedule();
@@ -396,10 +236,11 @@ export default function App() {
     </View>
   );
 
+  // ----- Derived data -----
   const today = todayString();
   const pastView = selectedDate < today;
 
-    const stats = getDayStats(tasks, selectedDate);
+  const stats = getDayStats(tasks, selectedDate);
   const progressColor =
     stats.percent === 100
       ? GREEN
@@ -411,7 +252,7 @@ export default function App() {
   const eachTask = Math.round(100 / (stats.total || 1));
   const exact = stats.total > 0 && 100 % stats.total === 0;
 
-   // ----- Calendar: progress bar on today/past days, purple dot on future days -----
+  // ----- Calendar: progress bar on today/past days, purple dot on future days -----
   const markedDates = {};
   const candidateDates = new Set();
 
@@ -444,6 +285,12 @@ export default function App() {
       markedDates[ds] = { percent: s.percent, total: s.total };
     }
   });
+
+  markedDates[selectedDate] = {
+    ...(markedDates[selectedDate] || {}),
+    selected: true,
+    selectedColor: COLOR,
+  };
 
   // Missed tasks box (oldest first)
   const missedTasks = tasks
@@ -509,7 +356,7 @@ export default function App() {
                     <Text style={styles.missedAction}>📅 Reschedule</Text>
                   </TouchableOpacity>
                   {t.repeat !== "daily" && (
-                    <TouchableOpacity onPress={() => deleteTask(t.id)}>
+                    <TouchableOpacity onPress={() => handleDelete(t.id)}>
                       <Text style={styles.missedAction}>🗑️</Text>
                     </TouchableOpacity>
                   )}
@@ -540,7 +387,9 @@ export default function App() {
         style={styles.calendar}
       />
 
-      <Text style={styles.legend}> 🟣 Upcoming   ·   Bar under a date = % completed </Text>
+      <Text style={styles.legend}>
+        🟣 Upcoming   ·   Bar under a date = % completed
+      </Text>
 
       <TouchableOpacity
         onPress={() => {
@@ -561,7 +410,7 @@ export default function App() {
       )}
 
       <Text style={styles.dateTitle}>{prettyDate(selectedDate)}</Text>
-            <Text style={styles.count}>
+      <Text style={styles.count}>
         {dayTasks.length} {dayTasks.length === 1 ? "task" : "tasks"}
         {pastView && dayTasks.length > 0
           ? `  ·  ✅ ${pastDone} completed  ·  ❌ ${pastMissed} missed`
@@ -616,9 +465,9 @@ export default function App() {
               placeholder="Task name..."
               value={text}
               onChangeText={setText}
-              onSubmitEditing={addTask}
+              onSubmitEditing={submitTask}
             />
-            <TouchableOpacity style={styles.addBtn} onPress={addTask}>
+            <TouchableOpacity style={styles.addBtn} onPress={submitTask}>
               <Text style={styles.addText}>{editingId ? "Save" : "Add"}</Text>
             </TouchableOpacity>
           </View>
@@ -703,15 +552,15 @@ export default function App() {
                       status === "done"
                         ? styles.badgeDone
                         : status === "moved"
-                          ? styles.badgeMoved
-                          : styles.badgeMissed,
+                        ? styles.badgeMoved
+                        : styles.badgeMissed,
                     ]}
                   >
                     {status === "done"
                       ? "✅ Completed"
                       : status === "moved"
-                        ? "📅 Rescheduled"
-                        : "❌ Missed"}
+                      ? "📅 Rescheduled"
+                      : "❌ Missed"}
                   </Text>
 
                   {status === "missed" && (
@@ -740,7 +589,7 @@ export default function App() {
               <View style={styles.task}>
                 <TouchableOpacity
                   style={{ flex: 1 }}
-                  onPress={() => toggleTask(item.id)}
+                  onPress={() => toggleTask(item.id, selectedDate)}
                 >
                   <Text style={[styles.taskText, done && styles.done]}>
                     {done ? "✅ " : "⬜ "}
@@ -754,7 +603,7 @@ export default function App() {
                 <TouchableOpacity onPress={() => startEdit(item)}>
                   <Text style={styles.editBtn}>✏️</Text>
                 </TouchableOpacity>
-                <TouchableOpacity onPress={() => deleteTask(item.id)}>
+                <TouchableOpacity onPress={() => handleDelete(item.id)}>
                   <Text style={styles.delete}>🗑️</Text>
                 </TouchableOpacity>
               </View>
@@ -821,7 +670,7 @@ const styles = StyleSheet.create({
   reschedTitle: { fontSize: 15, fontWeight: "bold", marginBottom: 10 },
   reschedActions: { flexDirection: "row", alignItems: "center", marginTop: 4 },
   cancelText: { color: COLOR, fontWeight: "600", marginLeft: 16 },
-    progressCard: { backgroundColor: "#f9fafb", borderRadius: 12, padding: 12, marginBottom: 12 },
+  progressCard: { backgroundColor: "#f9fafb", borderRadius: 12, padding: 12, marginBottom: 12 },
   progressTop: { flexDirection: "row", alignItems: "baseline", marginBottom: 8 },
   progressPercent: { fontSize: 28, fontWeight: "bold", marginRight: 10 },
   progressText: { color: "#555", fontSize: 14 },
