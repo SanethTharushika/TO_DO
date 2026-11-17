@@ -1,17 +1,36 @@
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { formatTime } from "../utils/dateUtils";
 
-export default function TaskItem({ task, done, onToggle, onEdit, onDelete }) {
+export default function TaskItem({
+  task,
+  done,
+  locked,
+  onToggle,
+  onEdit,
+  onDelete,
+}) {
   return (
     <View style={styles.row}>
-      <TouchableOpacity style={{ flex: 1 }} onPress={onToggle}>
-        <Text style={[styles.title, done && styles.done]}>
-          {done ? "✅ " : "⬜ "}
+      <TouchableOpacity
+        style={{ flex: 1 }}
+        onPress={locked ? undefined : onToggle}
+        disabled={locked}
+        activeOpacity={locked ? 1 : 0.2}
+      >
+        <Text
+          style={[
+            styles.title,
+            locked && styles.locked,
+            !locked && done && styles.done,
+          ]}
+        >
+          {locked ? "🔒 " : done ? "✅ " : "⬜ "}
           {task.title}
         </Text>
         <Text style={styles.meta}>
           {task.repeat === "daily" ? "🔁 Daily  " : ""}
-          {task.time ? `⏰ ${formatTime(task.time)}` : ""}
+          {task.time ? `⏰ ${formatTime(task.time)}  ` : ""}
+          {locked ? "Available on this day" : ""}
         </Text>
       </TouchableOpacity>
       <TouchableOpacity onPress={onEdit}>
@@ -29,5 +48,6 @@ const styles = StyleSheet.create({
   title: { fontSize: 16 },
   meta: { fontSize: 12, color: "#888", marginTop: 2 },
   done: { textDecorationLine: "line-through", color: "#999" },
+  locked: { color: "#9ca3af" },
   icon: { fontSize: 20, paddingLeft: 12 },
 });

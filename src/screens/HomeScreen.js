@@ -191,8 +191,7 @@ export default function HomeScreen() {
     rescheduleTask(reschedule.taskId, reschedule.occDate, rDate, rTime);
 
     setNotice(
-      `📅 "${task.title}" moved to ${prettyDate(rDate)}${
-        rTime ? " at " + formatTime(rTime) : ""
+      `📅 "${task.title}" moved to ${prettyDate(rDate)}${rTime ? " at " + formatTime(rTime) : ""
       }`
     );
     cancelReschedule();
@@ -362,7 +361,12 @@ export default function HomeScreen() {
               <TaskItem
                 task={item}
                 done={isDoneOn(item, selectedDate)}
-                onToggle={() => toggleTask(item.id, selectedDate)}
+                locked={selectedDate > today}
+                onToggle={
+                  selectedDate > today
+                    ? undefined
+                    : () => toggleTask(item.id, selectedDate)
+                }
                 onEdit={() => startEdit(item)}
                 onDelete={() => handleDelete(item.id)}
               />
