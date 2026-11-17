@@ -14,7 +14,19 @@ export default function useTasks() {
     const load = async () => {
       try {
         const saved = await AsyncStorage.getItem(STORAGE_KEY);
-        if (saved) setTasks(JSON.parse(saved));
+        if (saved) {
+          const today = todayString();
+          const cleaned = JSON.parse(saved).map((t) => {
+            if (t.repeat === "daily") {
+              return {
+                ...t,
+                doneDates: (t.doneDates || []).filter((d) => d <= today),
+              };
+            }
+            return t.date > today ? { ...t, done: false } : t;
+          });
+          setTasks(cleaned);
+        }
       } catch (e) {
         console.log("Load error", e);
       }
