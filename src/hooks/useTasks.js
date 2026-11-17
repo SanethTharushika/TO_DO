@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { STORAGE_KEY } from "../constants/storageKeys";
 import { isDoneOn } from "../utils/taskUtils";
+import { isDoneOn } from "../utils/taskUtils";
+import { todayString } from "../utils/dateUtils";
 
 export default function useTasks() {
   const [tasks, setTasks] = useState([]);
@@ -55,8 +57,10 @@ export default function useTasks() {
       })
     );
 
-  // Tick / untick for one specific day
-  const toggleTask = (id, date) =>
+  // Tick / untick for one specific day (future days are locked)
+  const toggleTask = (id, date) => {
+    if (date > todayString()) return;
+
     setTasks((prev) =>
       prev.map((t) => {
         if (t.id !== id) return t;
@@ -70,6 +74,7 @@ export default function useTasks() {
         return { ...t, done: !t.done };
       })
     );
+  };
 
   // Deleting a daily task removes it from every day
   const deleteTask = (id) =>
