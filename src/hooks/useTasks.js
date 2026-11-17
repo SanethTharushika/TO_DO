@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { STORAGE_KEY } from "../constants/storageKeys";
 import { isDoneOn } from "../utils/taskUtils";
-import { isDoneOn } from "../utils/taskUtils";
 import { todayString } from "../utils/dateUtils";
 
 export default function useTasks() {
