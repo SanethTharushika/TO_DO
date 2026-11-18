@@ -16,7 +16,8 @@ A simple To-Do app for noting down today's, tomorrow's, and future work. Built w
 
 The Home Screen now includes a real-time digital clock that displays the current time and date, updating every second.
 
-![To-Do App Home Screen with Real-Time Digital Clock](./screenshots/home-screen-clock.png)
+<img width="765" height="756" alt="home-screen-clock" src="https://github.com/user-attachments/assets/709e2523-dfd0-4cb0-adab-94a098ba6990" />
+
 
 ## 🛠️ Built With
 
