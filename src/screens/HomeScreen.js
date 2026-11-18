@@ -25,6 +25,7 @@ import ReschedulePanel from "../components/ReschedulePanel";
 import useTasks from "../hooks/useTasks";
 import useReminders from "../hooks/useReminders";
 import useTick from "../hooks/useTick";
+import Clock from "../components/Clock";
 
 export default function HomeScreen() {
   // ----- Data and background logic (hooks) -----
@@ -235,6 +236,8 @@ export default function HomeScreen() {
   const header = (
     <View>
       <Text style={styles.heading}>My To-Do</Text>
+       
+       <Clock />
 
       {notice !== "" && (
         <View style={styles.noticeBox}>
