@@ -12,6 +12,12 @@ A simple To-Do app for noting down today's, tomorrow's, and future work. Built w
 - Tasks are saved on the device, so they stay after closing or refreshing
 - Works on the web and can be added to an iPhone home screen like a normal app
 
+  ## 🖥️ App Preview
+
+The Home Screen now includes a real-time digital clock that displays the current time and date, updating every second.
+
+![To-Do App Home Screen with Real-Time Digital Clock](./screenshots/home-screen-clock.png)
+
 ## 🛠️ Built With
 
 - [React Native](https://reactnative.dev/)
