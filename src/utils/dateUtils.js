@@ -50,3 +50,14 @@ export const dayLabel = (date) => {
     day: "numeric",
   });
 };
+
+// "02:45:30 PM" (12h) or "14:45:30" (24h)
+export const formatClock = (date, use24h = false) => {
+  const h = date.getHours();
+  const m = pad(date.getMinutes());
+  const s = pad(date.getSeconds());
+  if (use24h) return `${pad(h)}:${m}:${s}`;
+  const suffix = h >= 12 ? "PM" : "AM";
+  const hour12 = h % 12 === 0 ? 12 : h % 12;
+  return `${pad(hour12)}:${m}:${s} ${suffix}`;
+};
