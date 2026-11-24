@@ -300,9 +300,16 @@ export default function HomeScreen() {
         }}
         markedDates={markedDates}
         theme={{
-          todayTextColor: COLOR,
-          arrowColor: COLOR,
-          selectedDayBackgroundColor: COLOR,
+          backgroundColor: colors.background,
+          calendarBackground: colors.card,
+          textSectionTitleColor: colors.muted,
+          dayTextColor: colors.calendarText,
+          monthTextColor: colors.text,
+          todayTextColor: colors.primary,
+          arrowColor: colors.primary,
+          selectedDayBackgroundColor: colors.primary,
+          selectedDayTextColor: "#ffffff",
+          textDisabledColor: colors.otherMonth,
         }}
         style={styles.calendar}
       />
@@ -430,6 +437,6 @@ const styles = StyleSheet.create({
   empty: { textAlign: "center", color: "#999", marginTop: 20 },
   noticeBox: { backgroundColor: "#dcfce7", borderRadius: 12, padding: 12, marginBottom: 12 },
   noticeText: { color: "#166534", fontWeight: "600" },
-  themeSelector: {flexDirection: "row", gap: 8, marginBottom: 14 },
-  themeOption: {paddingVertical: 8, paddingHorizontal: 14, borderRadius: 20, borderWidth: 1 },
+  themeSelector: { flexDirection: "row", gap: 8, marginBottom: 14 },
+  themeOption: { paddingVertical: 8, paddingHorizontal: 14, borderRadius: 20, borderWidth: 1 },
 });
