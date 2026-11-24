@@ -4,7 +4,7 @@ import {
 } from "react-native";
 import { Calendar } from "react-native-calendars";
 
-import { COLOR } from "../constants/colors";
+import { useTheme } from "../context/ThemeContext";
 import {
   todayString, tomorrowString, nowTimeString, formatTime, prettyDate,
 } from "../utils/dateUtils";
@@ -54,6 +54,7 @@ export default function HomeScreen() {
   const [rDate, setRDate] = useState("");
   const [rTime, setRTime] = useState("");
   const [rError, setRError] = useState("");
+  const { colors, themeMode, setThemeMode } = useTheme();
 
   // Auto-hide the green notice
   useEffect(() => {
@@ -235,9 +236,42 @@ export default function HomeScreen() {
 
   const header = (
     <View>
-      <Text style={styles.heading}>My To-Do</Text>
-       
-       <Clock />
+      <Text style={[styles.heading, { color: colors.text }]}>
+        My To-Do
+      </Text>
+
+      <View style={styles.themeSelector}>
+        {["light", "dark", "system"].map((mode) => (
+          <TouchableOpacity
+            key={mode}
+            style={[
+              styles.themeOption,
+              {
+                backgroundColor:
+                  themeMode === mode ? colors.primary : colors.card,
+                borderColor: colors.border,
+              },
+            ]}
+            onPress={() => setThemeMode(mode)}
+          >
+            <Text
+              style={{
+                color: themeMode === mode ? "#ffffff" : colors.text,
+                fontWeight: "600",
+                fontSize: 12,
+              }}
+            >
+              {mode === "light"
+                ? "☀️ Light"
+                : mode === "dark"
+                  ? "🌙 Dark"
+                  : "⚙️ System"}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      <Clock />
 
       {notice !== "" && (
         <View style={styles.noticeBox}>
