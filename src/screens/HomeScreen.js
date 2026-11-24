@@ -3,7 +3,7 @@ import {
   View, Text, TouchableOpacity, FlatList, StyleSheet, SafeAreaView,
 } from "react-native";
 import { Calendar } from "react-native-calendars";
-
+import { COLOR } from "../constants/colors";
 import { useTheme } from "../context/ThemeContext";
 import {
   todayString, tomorrowString, nowTimeString, formatTime, prettyDate,
@@ -428,9 +428,9 @@ const styles = StyleSheet.create({
   heading: { fontSize: 28, fontWeight: "bold", marginBottom: 12 },
   calendar: { borderWidth: 1, borderColor: "#eee", borderRadius: 12 },
   legend: { color: "#888", fontSize: 12, marginTop: 8 },
-  todayLink: { color: COLOR, textAlign: "right", marginTop: 4, fontWeight: "600" },
-  notifBtn: { alignSelf: "flex-start", borderWidth: 1, borderColor: COLOR, borderRadius: 16, paddingVertical: 6, paddingHorizontal: 14, marginTop: 8 },
-  notifText: { color: COLOR, fontWeight: "600" },
+  todayLink: { color: "#4f46e5", textAlign: "right", marginTop: 4, fontWeight: "600" },
+  notifBtn: { alignSelf: "flex-start", borderWidth: 1, borderColor: "#4f46e5", borderRadius: 16, paddingVertical: 6, paddingHorizontal: 14, marginTop: 8 },
+  notifText: { color: "#4f46e5", fontWeight: "600" },
   dateTitle: { fontSize: 18, fontWeight: "bold", marginTop: 12 },
   count: { color: "#888", marginBottom: 12 },
   hint: { color: "#888", marginBottom: 12 },
