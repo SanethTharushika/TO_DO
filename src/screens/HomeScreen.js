@@ -41,6 +41,7 @@ export default function HomeScreen() {
 
   // ----- Screen state -----
   const [selectedDate, setSelectedDate] = useState(todayString());
+  const [jumpCount, setJumpCount] = useState(0);
   const [notice, setNotice] = useState("");
 
   // Add / edit form state
@@ -263,7 +264,7 @@ export default function HomeScreen() {
       />
 
       <Calendar
-        key={isDark ? "calendar-dark" : "calendar-light"}
+        key={`${isDark ? "calendar-dark" : "calendar-light"}-${jumpCount}`}
         current={selectedDate}
         dayComponent={CalendarDay}
         onDayPress={(day) => {
