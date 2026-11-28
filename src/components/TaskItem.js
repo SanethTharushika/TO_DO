@@ -1,4 +1,5 @@
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
+import { useTheme } from "../context/ThemeContext";
 import { formatTime } from "../utils/dateUtils";
 
 export default function TaskItem({
@@ -9,8 +10,10 @@ export default function TaskItem({
   onEdit,
   onDelete,
 }) {
+  const { colors } = useTheme();
+
   return (
-    <View style={styles.row}>
+    <View style={[styles.row, { borderBottomColor: colors.border }]}>
       <TouchableOpacity
         style={{ flex: 1 }}
         onPress={locked ? undefined : onToggle}
@@ -20,14 +23,16 @@ export default function TaskItem({
         <Text
           style={[
             styles.title,
-            locked && styles.locked,
+            { color: colors.text },
+            locked && { color: colors.muted },
             !locked && done && styles.done,
+            !locked && done && { color: colors.muted },
           ]}
         >
           {locked ? "🔒 " : done ? "✅ " : "⬜ "}
           {task.title}
         </Text>
-        <Text style={styles.meta}>
+        <Text style={[styles.meta, { color: colors.muted }]}>
           {task.repeat === "daily" ? "🔁 Daily  " : ""}
           {task.time ? `⏰ ${formatTime(task.time)}  ` : ""}
           {locked ? "Available on this day" : ""}
@@ -44,10 +49,14 @@ export default function TaskItem({
 }
 
 const styles = StyleSheet.create({
-  row: { flexDirection: "row", alignItems: "center", paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "#eee" },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+  },
   title: { fontSize: 16 },
-  meta: { fontSize: 12, color: "#888", marginTop: 2 },
-  done: { textDecorationLine: "line-through", color: "#999" },
-  locked: { color: "#9ca3af" },
+  meta: { fontSize: 12, marginTop: 2 },
+  done: { textDecorationLine: "line-through" },
   icon: { fontSize: 20, paddingLeft: 12 },
 });

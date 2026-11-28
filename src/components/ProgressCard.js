@@ -1,31 +1,34 @@
 import { View, Text, StyleSheet } from "react-native";
-import { COLOR, GREEN, RED, AMBER } from "../constants/colors";
+import { useTheme } from "../context/ThemeContext";
 
 export default function ProgressCard({ stats, isToday }) {
+  const { colors } = useTheme();
+
   if (stats.total === 0) return null;
 
+  // green = all done, accent = today in progress, red = nothing done, orange = partly done
   const color =
     stats.percent === 100
-      ? GREEN
+      ? colors.success
       : isToday
-      ? COLOR
+      ? colors.link
       : stats.percent === 0
-      ? RED
-      : AMBER;
+      ? colors.danger
+      : colors.warning;
 
   const eachTask = Math.round(100 / stats.total);
   const exact = 100 % stats.total === 0;
 
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, { backgroundColor: colors.card }]}>
       <View style={styles.top}>
         <Text style={[styles.percent, { color }]}>{stats.percent}%</Text>
-        <Text style={styles.text}>
+        <Text style={[styles.text, { color: colors.text }]}>
           {stats.done} of {stats.total} {stats.total === 1 ? "task" : "tasks"}{" "}
           completed
         </Text>
       </View>
-      <View style={styles.track}>
+      <View style={[styles.track, { backgroundColor: colors.track }]}>
         <View
           style={[
             styles.fill,
@@ -33,7 +36,7 @@ export default function ProgressCard({ stats, isToday }) {
           ]}
         />
       </View>
-      <Text style={styles.hint}>
+      <Text style={[styles.hint, { color: colors.muted }]}>
         Each task {exact ? "=" : "≈"} {eachTask}%
       </Text>
     </View>
@@ -41,11 +44,11 @@ export default function ProgressCard({ stats, isToday }) {
 }
 
 const styles = StyleSheet.create({
-  card: { backgroundColor: "#f9fafb", borderRadius: 12, padding: 12, marginBottom: 12 },
+  card: { borderRadius: 12, padding: 12, marginBottom: 12 },
   top: { flexDirection: "row", alignItems: "baseline", marginBottom: 8 },
   percent: { fontSize: 28, fontWeight: "bold", marginRight: 10 },
-  text: { color: "#555", fontSize: 14 },
-  track: { height: 8, borderRadius: 4, backgroundColor: "#e5e7eb", overflow: "hidden" },
+  text: { fontSize: 14 },
+  track: { height: 8, borderRadius: 4, overflow: "hidden" },
   fill: { height: 8, borderRadius: 4 },
-  hint: { color: "#888", fontSize: 12, marginTop: 6 },
+  hint: { fontSize: 12, marginTop: 6 },
 });

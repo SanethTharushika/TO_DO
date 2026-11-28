@@ -3,8 +3,7 @@ import {
   View, Text, TouchableOpacity, FlatList, StyleSheet, SafeAreaView,
 } from "react-native";
 import { Calendar } from "react-native-calendars";
-
-import { COLOR } from "../constants/colors";
+import { useTheme } from "../context/ThemeContext";
 import {
   todayString, tomorrowString, nowTimeString, formatTime, prettyDate,
 } from "../utils/dateUtils";
@@ -21,13 +20,16 @@ import TaskForm from "../components/TaskForm";
 import TaskItem from "../components/TaskItem";
 import PastTaskItem from "../components/PastTaskItem";
 import ReschedulePanel from "../components/ReschedulePanel";
+import ThemeToggle from "../components/ThemeToggle";
+import Clock from "../components/Clock";
 
 import useTasks from "../hooks/useTasks";
 import useReminders from "../hooks/useReminders";
 import useTick from "../hooks/useTick";
-import Clock from "../components/Clock";
 
 export default function HomeScreen() {
+  const { colors, isDark } = useTheme();
+
   // ----- Data and background logic (hooks) -----
   const {
     tasks, loaded, addTask, updateTask, toggleTask,
@@ -192,7 +194,8 @@ export default function HomeScreen() {
     rescheduleTask(reschedule.taskId, reschedule.occDate, rDate, rTime);
 
     setNotice(
-      `📅 "${task.title}" moved to ${prettyDate(rDate)}${rTime ? " at " + formatTime(rTime) : ""
+      `📅 "${task.title}" moved to ${prettyDate(rDate)}${
+        rTime ? " at " + formatTime(rTime) : ""
       }`
     );
     cancelReschedule();
@@ -235,13 +238,18 @@ export default function HomeScreen() {
 
   const header = (
     <View>
-      <Text style={styles.heading}>My To-Do</Text>
-       
-       <Clock />
+      <View style={styles.headerRow}>
+        <Text style={[styles.heading, { color: colors.text }]}>My To-Do</Text>
+        <ThemeToggle />
+      </View>
+
+      <Clock />
 
       {notice !== "" && (
-        <View style={styles.noticeBox}>
-          <Text style={styles.noticeText}>{notice}</Text>
+        <View style={[styles.noticeBox, { backgroundColor: colors.noticeBg }]}>
+          <Text style={[styles.noticeText, { color: colors.noticeText }]}>
+            {notice}
+          </Text>
         </View>
       )}
 
@@ -255,6 +263,7 @@ export default function HomeScreen() {
       />
 
       <Calendar
+        key={isDark ? "calendar-dark" : "calendar-light"}
         current={selectedDate}
         dayComponent={CalendarDay}
         onDayPress={(day) => {
@@ -266,14 +275,24 @@ export default function HomeScreen() {
         }}
         markedDates={markedDates}
         theme={{
-          todayTextColor: COLOR,
-          arrowColor: COLOR,
-          selectedDayBackgroundColor: COLOR,
+          backgroundColor: colors.card,
+          calendarBackground: colors.card,
+          textSectionTitleColor: colors.muted,
+          dayTextColor: colors.calendarText,
+          monthTextColor: colors.text,
+          todayTextColor: colors.link,
+          arrowColor: colors.link,
+          selectedDayBackgroundColor: colors.primary,
+          selectedDayTextColor: "#ffffff",
+          textDisabledColor: colors.otherMonth,
         }}
-        style={styles.calendar}
+        style={[
+          styles.calendar,
+          { borderColor: colors.border, backgroundColor: colors.card },
+        ]}
       />
 
-      <Text style={styles.legend}>
+      <Text style={[styles.legend, { color: colors.muted }]}>
         🟣 Upcoming   ·   Bar under a date = % completed
       </Text>
 
@@ -286,17 +305,26 @@ export default function HomeScreen() {
           setError("");
         }}
       >
-        <Text style={styles.todayLink}>Jump to today</Text>
+        <Text style={[styles.todayLink, { color: colors.link }]}>
+          Jump to today
+        </Text>
       </TouchableOpacity>
 
       {permission === "default" && (
-        <TouchableOpacity style={styles.notifBtn} onPress={enableNotifications}>
-          <Text style={styles.notifText}>🔔 Enable notifications</Text>
+        <TouchableOpacity
+          style={[styles.notifBtn, { borderColor: colors.link }]}
+          onPress={enableNotifications}
+        >
+          <Text style={[styles.notifText, { color: colors.link }]}>
+            🔔 Enable notifications
+          </Text>
         </TouchableOpacity>
       )}
 
-      <Text style={styles.dateTitle}>{prettyDate(selectedDate)}</Text>
-      <Text style={styles.count}>
+      <Text style={[styles.dateTitle, { color: colors.text }]}>
+        {prettyDate(selectedDate)}
+      </Text>
+      <Text style={[styles.count, { color: colors.muted }]}>
         {dayTasks.length} {dayTasks.length === 1 ? "task" : "tasks"}
         {pastView && dayTasks.length > 0
           ? `  ·  ✅ ${pastDone} completed  ·  ❌ ${pastMissed} missed`
@@ -308,7 +336,7 @@ export default function HomeScreen() {
       )}
 
       {pastView ? (
-        <Text style={styles.hint}>
+        <Text style={[styles.hint, { color: colors.muted }]}>
           📜 Past day, view only. You can reschedule missed tasks.
         </Text>
       ) : formOpen ? (
@@ -328,23 +356,25 @@ export default function HomeScreen() {
           onClose={closeForm}
         />
       ) : (
-        <Text style={styles.hint}>👆 Tap a date to add a task</Text>
+        <Text style={[styles.hint, { color: colors.muted }]}>
+          👆 Tap a date to add a task
+        </Text>
       )}
     </View>
   );
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
       <View style={styles.container}>
         <ReminderAlerts alerts={alerts} onDismiss={dismissAlert} />
 
         <FlatList
           data={dayTasks}
-          extraData={{ reschedule, rDate, rTime, rError, selectedDate }}
+          extraData={{ reschedule, rDate, rTime, rError, selectedDate, isDark }}
           keyExtractor={(item) => item.id}
           ListHeaderComponent={header}
           ListEmptyComponent={
-            <Text style={styles.empty}>
+            <Text style={[styles.empty, { color: colors.muted }]}>
               {pastView ? "No tasks on this day." : "No tasks for this day."}
             </Text>
           }
@@ -382,18 +412,19 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: "#fff" },
+  safe: { flex: 1 },
   container: { flex: 1, width: "100%", maxWidth: 600, alignSelf: "center", paddingHorizontal: 20, paddingTop: 40 },
-  heading: { fontSize: 28, fontWeight: "bold", marginBottom: 12 },
-  calendar: { borderWidth: 1, borderColor: "#eee", borderRadius: 12 },
-  legend: { color: "#888", fontSize: 12, marginTop: 8 },
-  todayLink: { color: COLOR, textAlign: "right", marginTop: 4, fontWeight: "600" },
-  notifBtn: { alignSelf: "flex-start", borderWidth: 1, borderColor: COLOR, borderRadius: 16, paddingVertical: 6, paddingHorizontal: 14, marginTop: 8 },
-  notifText: { color: COLOR, fontWeight: "600" },
+  headerRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 },
+  heading: { fontSize: 28, fontWeight: "bold" },
+  calendar: { borderWidth: 1, borderRadius: 12 },
+  legend: { fontSize: 12, marginTop: 8 },
+  todayLink: { textAlign: "right", marginTop: 4, fontWeight: "600" },
+  notifBtn: { alignSelf: "flex-start", borderWidth: 1, borderRadius: 16, paddingVertical: 6, paddingHorizontal: 14, marginTop: 8 },
+  notifText: { fontWeight: "600" },
   dateTitle: { fontSize: 18, fontWeight: "bold", marginTop: 12 },
-  count: { color: "#888", marginBottom: 12 },
-  hint: { color: "#888", marginBottom: 12 },
-  empty: { textAlign: "center", color: "#999", marginTop: 20 },
-  noticeBox: { backgroundColor: "#dcfce7", borderRadius: 12, padding: 12, marginBottom: 12 },
-  noticeText: { color: "#166534", fontWeight: "600" },
+  count: { marginBottom: 12 },
+  hint: { marginBottom: 12 },
+  empty: { textAlign: "center", marginTop: 20 },
+  noticeBox: { borderRadius: 12, padding: 12, marginBottom: 12 },
+  noticeText: { fontWeight: "600" },
 });
