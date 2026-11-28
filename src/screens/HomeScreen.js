@@ -302,6 +302,7 @@ export default function HomeScreen() {
           if (editingId) closeForm();
           cancelReschedule();
           setSelectedDate(todayString());
+          setJumpCount((n) => n + 1);
           setFormOpen(true);
           setError("");
         }}
