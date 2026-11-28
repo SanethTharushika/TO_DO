@@ -1,33 +1,35 @@
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
-import { COLOR, GREEN, RED, AMBER } from "../constants/colors";
+import { useTheme } from "../context/ThemeContext";
 import { todayString } from "../utils/dateUtils";
 
 export default function CalendarDay({ date, state, marking, onPress }) {
+  const { colors } = useTheme();
+
   const today = todayString();
   const isToday = date.dateString === today;
   const isPast = date.dateString < today;
   const isOtherMonth = state === "disabled";
   const isSelected = !!(marking && marking.selected);
-  const dotColor = marking && marking.marked ? marking.dotColor : null;
+  const hasDot = !!(marking && marking.marked);
   const percent =
     marking && marking.percent !== undefined ? marking.percent : null;
 
-  let textColor = "#2d4150";
-  if (isPast) textColor = "#b8bcc4";
-  if (isOtherMonth) textColor = "#d9dde3";
-  if (isToday) textColor = COLOR;
-  if (isSelected) textColor = "#fff";
+  let textColor = colors.calendarText;
+  if (isPast) textColor = colors.pastText;
+  if (isOtherMonth) textColor = colors.otherMonth;
+  if (isToday) textColor = colors.link;
+  if (isSelected) textColor = "#ffffff";
 
   let circleColor = "transparent";
-  if (isToday) circleColor = "#eef2ff";
-  if (isSelected) circleColor = isPast ? "#a5a8f5" : COLOR;
+  if (isToday) circleColor = colors.todayBg;
+  if (isSelected) circleColor = isPast ? colors.selectedPast : colors.primary;
 
-  // Bar colour: green = all done, purple = today in progress,
+  // Bar colour: green = all done, accent = today in progress,
   // red = nothing done, orange = partly done
-  let barColor = AMBER;
-  if (percent === 100) barColor = GREEN;
-  else if (isToday) barColor = COLOR;
-  else if (percent === 0) barColor = RED;
+  let barColor = colors.warning;
+  if (percent === 100) barColor = colors.success;
+  else if (isToday) barColor = colors.link;
+  else if (percent === 0) barColor = colors.danger;
 
   return (
     <TouchableOpacity style={styles.wrap} onPress={() => onPress(date)}>
@@ -40,7 +42,7 @@ export default function CalendarDay({ date, state, marking, onPress }) {
       </View>
 
       {percent !== null && (
-        <View style={styles.track}>
+        <View style={[styles.track, { backgroundColor: colors.track }]}>
           <View
             style={[
               styles.fill,
@@ -50,7 +52,9 @@ export default function CalendarDay({ date, state, marking, onPress }) {
         </View>
       )}
 
-      {dotColor && <View style={[styles.dot, { backgroundColor: dotColor }]} />}
+      {hasDot && (
+        <View style={[styles.dot, { backgroundColor: colors.link }]} />
+      )}
     </TouchableOpacity>
   );
 }
@@ -72,7 +76,6 @@ const styles = StyleSheet.create({
     width: 24,
     height: 4,
     borderRadius: 2,
-    backgroundColor: "#e5e7eb",
     overflow: "hidden",
   },
   fill: { height: 4, borderRadius: 2 },
