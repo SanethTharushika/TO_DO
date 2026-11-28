@@ -1,109 +1,78 @@
-
-import React, {
-  createContext,
-  useContext,
-  useEffect,
-  useState,
+import {
+  createContext, useContext, useState, useEffect, useMemo, useCallback,
 } from "react";
-import { useColorScheme, View } from "react-native";
+import { View, Platform, useColorScheme } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-
 import { lightColors, darkColors } from "../constants/theme";
-
-const THEME_STORAGE_KEY = "todo_theme_v1";
+import { THEME_KEY } from "../constants/storageKeys";
 
 const ThemeContext = createContext(null);
 
 export function ThemeProvider({ children }) {
-  const systemColorScheme = useColorScheme();
+  const systemScheme = useColorScheme();
+  const [saved, setSaved] = useState(null); // "light" | "dark" | null (not chosen yet)
+  const [ready, setReady] = useState(false);
 
-  const [themeMode, setThemeMode] = useState("system");
-  const [themeLoaded, setThemeLoaded] = useState(false);
-
-  // Restore the saved theme preference on startup.
+  // Load the saved choice once
   useEffect(() => {
-    let active = true;
-
-    const loadTheme = async () => {
-      try {
-        const savedTheme = await AsyncStorage.getItem(
-          THEME_STORAGE_KEY
-        );
-
-        if (
-          active &&
-          ["light", "dark", "system"].includes(savedTheme)
-        ) {
-          setThemeMode(savedTheme);
-        }
-      } catch (error) {
-        console.error("Failed to load theme preference:", error);
-      } finally {
-        if (active) {
-          setThemeLoaded(true);
-        }
-      }
-    };
-
-    loadTheme();
-
-    return () => {
-      active = false;
-    };
+    AsyncStorage.getItem(THEME_KEY)
+      .then((v) => {
+        if (v === "light" || v === "dark") setSaved(v);
+      })
+      .catch(() => {})
+      .finally(() => setReady(true));
   }, []);
 
-  // Save the selected theme preference.
+  // First launch follows the device setting; after that, the saved choice wins
+  const mode = saved || (systemScheme === "dark" ? "dark" : "light");
+  const isDark = mode === "dark";
+  const colors = isDark ? darkColors : lightColors;
+
+  const setThemeMode = useCallback((m) => {
+    setSaved(m);
+    AsyncStorage.setItem(THEME_KEY, m).catch(() => {});
+  }, []);
+
+  const toggleTheme = useCallback(() => {
+    setThemeMode(isDark ? "light" : "dark");
+  }, [isDark, setThemeMode]);
+
+  // Web: match the page background and the browser/status bar color
   useEffect(() => {
-    if (!themeLoaded) return;
+    if (Platform.OS !== "web" || typeof document === "undefined") return;
+    document.body.style.backgroundColor = colors.background;
+    let meta = document.querySelector('meta[name="theme-color"]');
+    if (!meta) {
+      meta = document.createElement("meta");
+      meta.setAttribute("name", "theme-color");
+      document.head.appendChild(meta);
+    }
+    meta.setAttribute("content", colors.background);
+  }, [colors.background]);
 
-    AsyncStorage.setItem(THEME_STORAGE_KEY, themeMode).catch(
-      (error) => {
-        console.error("Failed to save theme preference:", error);
-      }
+  const value = useMemo(
+    () => ({ colors, isDark, themeMode: mode, setThemeMode, toggleTheme }),
+    [colors, isDark, mode, setThemeMode, toggleTheme]
+  );
+
+  // Wait for the saved choice, so the wrong theme never flashes on startup
+  if (!ready) {
+    return (
+      <View
+        style={{
+          flex: 1,
+          backgroundColor:
+            systemScheme === "dark" ? darkColors.background : lightColors.background,
+        }}
+      />
     );
-  }, [themeMode, themeLoaded]);
-
-  // Resolve System mode using the device appearance.
-  const activeTheme =
-    themeMode === "system"
-      ? systemColorScheme === "dark"
-        ? "dark"
-        : "light"
-      : themeMode;
-
-  const colors =
-    activeTheme === "dark" ? darkColors : lightColors;
-
-  const value = {
-    themeMode,
-    activeTheme,
-    colors,
-    setThemeMode,
-  };
-
-  // Prevent the app from showing the wrong theme before
-  // the saved preference has been restored.
-  if (!themeLoaded) {
-    return null;
   }
 
-  return (
-    <ThemeContext.Provider value={value}>
-      <View style={{ flex: 1, backgroundColor: colors.background }}>
-        {children}
-      </View>
-    </ThemeContext.Provider>
-  );
+  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
 
 export function useTheme() {
-  const context = useContext(ThemeContext);
-
-  if (!context) {
-    throw new Error(
-      "useTheme must be used inside ThemeProvider"
-    );
-  }
-
-  return context;
+  const ctx = useContext(ThemeContext);
+  if (!ctx) throw new Error("useTheme must be used inside <ThemeProvider>");
+  return ctx;
 }
